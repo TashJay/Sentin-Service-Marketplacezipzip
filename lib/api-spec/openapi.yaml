@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Sentin marketplace API for provider discovery, service requests, quotes, and bookings.
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: marketplace
+    description: Service and provider discovery
+  - name: jobs
+    description: Customer service requests and quotes
+  - name: providers
+    description: Provider profiles and quote responses
+  - name: bookings
+    description: Confirmed booking records and customer summaries
 paths:
   /healthz:
     get:
@@ -24,6 +32,323 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /services:
+    get:
+      operationId: listServices
+      tags: [marketplace]
+      summary: List available service categories
+      responses:
+        "200":
+          description: Service categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+  /providers:
+    get:
+      operationId: searchProviders
+      tags: [marketplace]
+      summary: Search providers by service and area
+      parameters:
+        - name: serviceSlug
+          in: query
+          schema:
+            type: string
+        - name: location
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: Matching providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+  /providers/{providerId}:
+    get:
+      operationId: getProvider
+      tags: [marketplace]
+      summary: Get a provider profile
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Provider profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+        "404":
+          description: Provider not found
+  /jobs:
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Create a customer service request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Service request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Invalid request
+  /my/jobs:
+    get:
+      operationId: listMyJobs
+      tags: [jobs]
+      summary: List the signed-in customer's service requests
+      responses:
+        "200":
+          description: Customer service requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+        "401":
+          description: Authentication required
+  /jobs/{jobId}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a service request owned by the signed-in customer
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Service request details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Service request not found
+        "401":
+          description: Authentication required
+  /jobs/{jobId}/quote-requests:
+    post:
+      operationId: requestQuotes
+      tags: [jobs]
+      summary: Send a service request to matched providers
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Quote requests sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Service request not found
+        "401":
+          description: Authentication required
+  /jobs/{jobId}/quotes:
+    get:
+      operationId: listJobQuotes
+      tags: [jobs]
+      summary: List quotes for a service request owned by the signed-in customer
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Quotes received for this request
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quote"
+        "404":
+          description: Service request not found
+        "401":
+          description: Authentication required
+  /provider/profile:
+    post:
+      operationId: createProviderProfile
+      tags: [providers]
+      summary: Create a provider profile for the signed-in user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderProfileInput"
+      responses:
+        "201":
+          description: Provider profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+        "409":
+          description: A provider profile already exists
+        "401":
+          description: Authentication required
+  /provider/requests:
+    get:
+      operationId: listProviderRequests
+      tags: [providers]
+      summary: List matching open requests for the signed-in provider
+      responses:
+        "200":
+          description: Open customer requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+        "401":
+          description: Authentication required
+  /provider/jobs/{jobId}/quotes:
+    post:
+      operationId: submitQuote
+      tags: [providers]
+      summary: Submit a quote for a matched customer request
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuoteInput"
+      responses:
+        "201":
+          description: Quote submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+        "400":
+          description: Invalid quote or provider is not matched to this request
+        "401":
+          description: Authentication required
+  /quotes/{quoteId}/accept:
+    post:
+      operationId: acceptQuote
+      tags: [bookings]
+      summary: Accept a quote and create its booking
+      parameters:
+        - name: quoteId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Booking created from the accepted quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          description: Quote cannot be accepted
+        "401":
+          description: Authentication required
+        "404":
+          description: Quote not found
+  /bookings/{bookingId}:
+    get:
+      operationId: getBooking
+      tags: [bookings]
+      summary: Get booking status for the signed-in customer
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Booking status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          description: Booking not found
+        "401":
+          description: Authentication required
+  /my/bookings:
+    get:
+      operationId: listMyBookings
+      tags: [bookings]
+      summary: List the signed-in customer's bookings
+      responses:
+        "200":
+          description: Customer bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+        "401":
+          description: Authentication required
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [bookings]
+      summary: Get a signed-in user's service activity summary
+      responses:
+        "200":
+          description: Marketplace activity summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          description: Authentication required
 components:
   schemas:
     HealthStatus:
@@ -33,4 +358,119 @@ components:
           type: string
       required:
         - status
+    Service:
+      type: object
+      required: [slug, name, category]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        category: { type: string }
+    Provider:
+      type: object
+      required:
+        [id, companyName, description, serviceSlugs, city, countryCode, verificationStatus, averageRating, reviewCount, minimumPrice, maximumPrice, currency, isDemo]
+      properties:
+        id: { type: string, format: uuid }
+        companyName: { type: string }
+        description: { type: string }
+        serviceSlugs:
+          type: array
+          items: { type: string }
+        city: { type: string }
+        countryCode: { type: string }
+        verificationStatus:
+          type: string
+          enum: [UNVERIFIED, PENDING, VERIFIED, SUSPENDED, REJECTED]
+        averageRating: { type: ["number", "null"] }
+        reviewCount: { type: integer }
+        minimumPrice: { type: ["number", "null"] }
+        maximumPrice: { type: ["number", "null"] }
+        currency: { type: string }
+        isDemo: { type: boolean }
+    Job:
+      type: object
+      required: [id, serviceSlug, serviceName, description, city, countryCode, urgency, propertyType, status, matchedProviderCount, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        serviceSlug: { type: string }
+        serviceName: { type: string }
+        description: { type: string }
+        city: { type: string }
+        countryCode: { type: string }
+        urgency: { type: string, enum: [unknown, standard, urgent, emergency] }
+        propertyType: { type: string, enum: [unknown, residential, commercial] }
+        status: { type: string, enum: [DRAFT, OPEN, QUOTED, BOOKED, COMPLETED, CANCELLED] }
+        matchedProviderCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+    JobInput:
+      type: object
+      required: [serviceSlug, description, city, countryCode]
+      properties:
+        serviceSlug: { type: string, minLength: 2, maxLength: 80 }
+        description: { type: string, minLength: 5, maxLength: 3000 }
+        city: { type: string, minLength: 1, maxLength: 120 }
+        countryCode: { type: string, minLength: 2, maxLength: 2 }
+        urgency: { type: string, enum: [unknown, standard, urgent, emergency], default: unknown }
+        propertyType: { type: string, enum: [unknown, residential, commercial], default: unknown }
+    Quote:
+      type: object
+      required: [id, jobId, providerId, providerName, amount, currency, description, durationMinutes, expiresAt, status, isDemo, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        jobId: { type: string, format: uuid }
+        providerId: { type: string, format: uuid }
+        providerName: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        description: { type: string }
+        durationMinutes: { type: ["integer", "null"] }
+        expiresAt: { type: ["string", "null"], format: date-time }
+        status: { type: string, enum: [SENT, ACCEPTED, REJECTED, EXPIRED, WITHDRAWN] }
+        isDemo: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    QuoteInput:
+      type: object
+      required: [amount, currency, description]
+      properties:
+        amount: { type: number, exclusiveMinimum: 0, maximum: 100000000 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        description: { type: string, minLength: 5, maxLength: 2000 }
+        durationMinutes: { type: ["integer", "null"], minimum: 1, maximum: 10080 }
+        expiresAt: { type: ["string", "null"], format: date-time }
+    ProviderProfileInput:
+      type: object
+      required: [companyName, description, serviceSlugs, city, countryCode, currency]
+      properties:
+        companyName: { type: string, minLength: 2, maxLength: 160 }
+        description: { type: string, minLength: 20, maxLength: 3000 }
+        serviceSlugs:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string }
+        city: { type: string, minLength: 1, maxLength: 120 }
+        countryCode: { type: string, minLength: 2, maxLength: 2 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        minimumPrice: { type: ["number", "null"], minimum: 0 }
+        maximumPrice: { type: ["number", "null"], minimum: 0 }
+    Booking:
+      type: object
+      required: [id, jobId, quoteId, providerId, providerName, status, scheduledAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        jobId: { type: string, format: uuid }
+        quoteId: { type: string, format: uuid }
+        providerId: { type: string, format: uuid }
+        providerName: { type: string }
+        status: { type: string, enum: [REQUESTED, PENDING_PROVIDER, CONFIRMED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED, DISPUTED] }
+        scheduledAt: { type: ["string", "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    DashboardSummary:
+      type: object
+      required: [openJobs, quotesReceived, activeBookings, completedBookings]
+      properties:
+        openJobs: { type: integer }
+        quotesReceived: { type: integer }
+        activeBookings: { type: integer }
+        completedBookings: { type: integer }
 

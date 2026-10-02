@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Sentin Services"
+description = "Sentin helps people find trusted real-world service providers, create service requests, compare quotes, and move toward a confirmed booking through a ChatGPT-ready service marketplace."
+version = "1.0.0"
+id = "artifacts/sentin"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24104
+
+[services.development]
+run = "pnpm --filter @workspace/sentin run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/sentin", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/sentin/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24104"
+BASE_PATH = "/"
