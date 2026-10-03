@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { providersTable, servicesTable } from "@workspace/db";
 
@@ -52,6 +53,13 @@ export async function seedDevelopmentData(): Promise<void> {
   await db.insert(servicesTable).values(
     categories.map(([slug, name, category]) => ({ slug, name, category })),
   ).onConflictDoNothing();
+
+  const [existingDemo] = await db
+    .select({ id: providersTable.id })
+    .from(providersTable)
+    .where(eq(providersTable.isDemo, true))
+    .limit(1);
+  if (existingDemo) return;
 
   await db.insert(providersTable).values([
     {

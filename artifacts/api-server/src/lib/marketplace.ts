@@ -277,7 +277,7 @@ export async function listProviderRequests(userId: string) {
     .where(and(
       eq(quoteRequestsTable.providerId, provider.id),
       eq(quoteRequestsTable.status, "OPEN"),
-      eq(jobsTable.status, "OPEN"),
+      inArray(jobsTable.status, ["OPEN", "QUOTED"]),
     ))
     .orderBy(desc(jobsTable.createdAt));
   return Promise.all(rows.map(({ job }) => toJob(job)));
@@ -293,7 +293,7 @@ export async function submitQuote(userId: string, jobId: string, input: QuoteInp
     .limit(1);
   if (!match || !["OPEN", "QUOTED"].includes(match.status)) return { error: "NOT_MATCHED" as const };
   const [job] = await db.select().from(jobsTable)
-    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.status, "OPEN")))
+    .where(and(eq(jobsTable.id, jobId), inArray(jobsTable.status, ["OPEN", "QUOTED"])))
     .limit(1);
   if (!job) return { error: "JOB_CLOSED" as const };
   const [existing] = await db.select({ id: quotesTable.id }).from(quotesTable)

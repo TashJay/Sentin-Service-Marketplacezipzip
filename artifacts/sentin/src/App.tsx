@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, SignIn, SignUp, useClerk } from '@clerk/react';
-import { publishableKeyFromHost } from '@clerk/react/internal';
+import { publishableKeyFromHost } from '@clerk/shared/keys';
 import { shadcn } from '@clerk/themes';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -71,10 +71,26 @@ const clerkAppearance = {
 };
 
 function SignInPage() {
-  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-6 text-center"><p className="serif text-3xl font-extrabold tracking-[-.06em]">sentin<span className="text-primary">.</span></p><p className="mt-2 text-sm text-muted-foreground">Local help, made clear.</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}/></div></div>;
+  const forceRedirectUrl = oauthCallbackUrl();
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-6 text-center"><p className="serif text-3xl font-extrabold tracking-[-.06em]">sentin<span className="text-primary">.</span></p><p className="mt-2 text-sm text-muted-foreground">Local help, made clear.</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={forceRedirectUrl}/></div></div>;
 }
 function SignUpPage() {
-  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-6 text-center"><p className="serif text-3xl font-extrabold tracking-[-.06em]">sentin<span className="text-primary">.</span></p><p className="mt-2 text-sm text-muted-foreground">Local help, made clear.</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`}/></div></div>;
+  const forceRedirectUrl = oauthCallbackUrl();
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-6 text-center"><p className="serif text-3xl font-extrabold tracking-[-.06em]">sentin<span className="text-primary">.</span></p><p className="mt-2 text-sm text-muted-foreground">Local help, made clear.</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={forceRedirectUrl}/></div></div>;
+}
+
+function oauthCallbackUrl(): string | undefined {
+  const target = new URLSearchParams(window.location.search).get('redirect_url');
+  if (!target) return undefined;
+  try {
+    const url = new URL(target, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname === '/api/oauth/authorize') {
+      return url.toString();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 function ClerkQueryClientCacheInvalidator() {
@@ -109,8 +125,8 @@ function ClerkRoutes() {
       signIn: { start: { title: 'Welcome back', subtitle: 'Sign in to continue with your service requests.' } },
       signUp: { start: { title: 'Create your Sentin account', subtitle: 'Keep requests, quotes and bookings together.' } },
     }}
-    routerPush={to => setLocation(stripBase(to))}
-    routerReplace={to => setLocation(stripBase(to), { replace: true })}
+    routerPush={(to: string) => setLocation(stripBase(to))}
+    routerReplace={(to: string) => setLocation(stripBase(to), { replace: true })}
   >
     <QueryClientProvider client={queryClient}>
       <ClerkQueryClientCacheInvalidator/>

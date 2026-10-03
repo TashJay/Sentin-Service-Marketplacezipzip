@@ -43,8 +43,10 @@ import {
   searchProviders,
   submitQuote,
 } from "../lib/marketplace";
+import { rateLimit } from "../lib/rate-limit";
 
 const router: IRouter = Router();
+router.use(rateLimit({ windowMs: 60 * 1000, max: 120 }));
 
 function currentUserId(req: Parameters<Parameters<typeof router.get>[1]>[0]): string | null {
   const auth = getAuth(req);
@@ -213,8 +215,12 @@ router.post("/provider/jobs/:jobId/quotes", async (req, res): Promise<void> => {
   }
   const params = SubmitQuoteParams.safeParse(req.params);
   const body = SubmitQuoteBody.safeParse(req.body);
-  if (!params.success || !body.success) {
-    res.status(400).json({ error: !params.success ? params.error.message : body.error.message });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
     return;
   }
   const result = await submitQuote(userId, params.data.jobId, body.data);
