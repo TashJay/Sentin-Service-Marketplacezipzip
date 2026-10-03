@@ -5,7 +5,9 @@
  * Sentin marketplace API for provider discovery, service requests, quotes, and bookings.
  * OpenAPI spec version: 0.1.0
  */
+import type { BookingPaymentStatus } from './bookingPaymentStatus';
 import type { BookingStatus } from './bookingStatus';
+import type { BookingStatusHistory } from './bookingStatusHistory';
 
 export interface Booking {
   id: string;
@@ -16,5 +18,9 @@ export interface Booking {
   status: BookingStatus;
   /** @nullable */
   scheduledAt: Date | null;
+  /** @nullable */
+  availabilitySlotId: string | null;
+  paymentStatus: BookingPaymentStatus;
   createdAt: Date;
+  statusHistory?: BookingStatusHistory[];
 }

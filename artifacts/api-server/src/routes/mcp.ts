@@ -4,15 +4,24 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import * as z from "zod/v4";
 import {
   acceptQuote,
+  createProviderAvailability,
   createJob,
   getBooking,
   getJob,
   getProvider,
+  listJobMessages,
   listJobQuotes,
+  listProviderAvailability,
+  listProviderBookings,
+  listPublicProviderAvailability,
   listServices,
   requestQuotes,
   searchProviders,
+  sendJobMessage,
+  updateBookingStatus,
+  updateProviderAvailability,
 } from "../lib/marketplace";
+import { prepareServiceRequest } from "../lib/concierge";
 import {
   bearerChallenge,
   publicOrigin,
@@ -43,6 +52,32 @@ const CreateJobInput = z.object({
 const JobInput = z.object({ jobId: z.string().uuid() });
 const QuoteInput = z.object({ quoteId: z.string().uuid() });
 const BookingInput = z.object({ bookingId: z.string().uuid() });
+const ConciergeInput = z.object({
+  conversationId: z.string().uuid().optional(),
+  message: z.string().min(1).max(3000),
+  serviceSlug: z.string().min(2).max(80).optional(),
+  description: z.string().max(3000).optional(),
+  city: z.string().max(120).optional(),
+  countryCode: z.string().length(2).optional(),
+  urgency: z.enum(["unknown", "standard", "urgent", "emergency"]).optional(),
+  propertyType: z.enum(["unknown", "residential", "commercial"]).optional(),
+});
+const AvailabilityInput = z.object({
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+});
+const AvailabilityUpdateInput = z.object({
+  slotId: z.string().uuid(),
+  status: z.enum(["OPEN", "BLOCKED"]),
+});
+const BookingStatusInput = z.object({
+  bookingId: z.string().uuid(),
+  status: z.enum(["CONFIRMED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "DISPUTED"]),
+  availabilitySlotId: z.string().uuid().optional(),
+});
+const JobMessageInput = z.object({ jobId: z.string().uuid() });
+const SendMessageInput = z.object({ jobId: z.string().uuid(), body: z.string().min(1).max(2000) });
+const ProviderBookingsInput = z.object({});
 
 type ToolContext = {
   http?: {
@@ -124,6 +159,28 @@ function registerMarketplaceTools(origin: string): McpServer {
   );
 
   server.registerTool(
+    "sentin_concierge",
+    {
+      title: "Understand a service request",
+      description: "Act as Sentin's local-services concierge. Extract only facts the customer supplied, ask one short question for the most important missing service or location detail, and create a private request only when the service, work description, city, and country are known. Never invent provider availability, pricing, reviews, quotes, or outcomes. Reuse conversationId on each follow-up and send the latest full issue summary as description.",
+      inputSchema: ConciergeInput,
+      securitySchemes: oauthSecurity(["sentin:jobs:write"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      _meta: { ui: { resourceUri: MARKETPLACE_RESOURCE_URI } },
+    } as any,
+    async (input: z.infer<typeof ConciergeInput>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:jobs:write"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:jobs:write"], origin) as never;
+      const result = await prepareServiceRequest(auth.userId, input);
+      return "error" in result
+        ? textResult({ error: result.error }, { isError: true })
+        : textResult({ type: "concierge", ...result }, { ui: true });
+    },
+  );
+
+  server.registerTool(
     "sentin_search_providers",
     {
       title: "Find service providers",
@@ -152,6 +209,24 @@ function registerMarketplaceTools(origin: string): McpServer {
       const provider = await getProvider(providerId);
       return provider
         ? textResult({ type: "provider", provider })
+        : textResult({ error: "Provider not found" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_list_provider_availability",
+    {
+      title: "Check real provider availability",
+      description: "List open appointment slots currently published by this real provider. Only these stored slots may be used to confirm a booking.",
+      inputSchema: ProviderInput,
+      securitySchemes: providerSecurity,
+      annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: MARKETPLACE_RESOURCE_URI } },
+    } as any,
+    async ({ providerId }: { providerId: string }) => {
+      const slots = await listPublicProviderAvailability(providerId);
+      return slots
+        ? textResult({ type: "availability", providerId, slots }, { ui: true })
         : textResult({ error: "Provider not found" }, { isError: true });
     },
   );
@@ -193,6 +268,48 @@ function registerMarketplaceTools(origin: string): McpServer {
       if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:jobs:read"], origin) as never;
       const job = await getJob(auth.userId, jobId);
       return job ? textResult({ type: "job", job }) : textResult({ error: "Request not found" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_get_job_messages",
+    {
+      title: "Read request messages",
+      description: "Read the customer-provider conversation for a service request where the signed-in user is a participant.",
+      inputSchema: JobMessageInput,
+      securitySchemes: oauthSecurity(["sentin:messages:read"]),
+      annotations: { readOnlyHint: true },
+    } as any,
+    async ({ jobId }: { jobId: string }, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:messages:read"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:messages:read"], origin) as never;
+      const messages = await listJobMessages(auth.userId, jobId);
+      return messages
+        ? textResult({ jobId, messages })
+        : textResult({ error: "Request not found or caller is not a participant" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_send_job_message",
+    {
+      title: "Send a request message",
+      description: "Send the signed-in participant's message to the other participant in a service request. Use only when the customer or provider explicitly asked to send that message.",
+      inputSchema: SendMessageInput,
+      securitySchemes: oauthSecurity(["sentin:messages:write"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    } as any,
+    async ({ jobId, body }: { jobId: string; body: string }, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:messages:write"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:messages:write"], origin) as never;
+      const result = await sendJobMessage(auth.userId, jobId, body);
+      return "error" in result
+        ? textResult({ error: result.error }, { isError: true })
+        : textResult({ message: result.message });
     },
   );
 
@@ -264,7 +381,7 @@ function registerMarketplaceTools(origin: string): McpServer {
     "sentin_get_booking_status",
     {
       title: "Get booking status",
-      description: "Retrieve the current status of a booking owned by the signed-in customer.",
+      description: "Retrieve the status and change history for a booking where the signed-in user is the customer or provider. Payment status is reported separately and never inferred.",
       inputSchema: BookingInput,
       securitySchemes: oauthSecurity(["sentin:bookings:read"]),
       annotations: { readOnlyHint: true },
@@ -279,6 +396,112 @@ function registerMarketplaceTools(origin: string): McpServer {
       return booking
         ? textResult({ type: "booking", booking }, { ui: true })
         : textResult({ error: "Booking not found" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_list_my_provider_bookings",
+    {
+      title: "List provider bookings",
+      description: "List booking requests and their real lifecycle status for the signed-in provider.",
+      inputSchema: ProviderBookingsInput,
+      securitySchemes: oauthSecurity(["sentin:bookings:read"]),
+      annotations: { readOnlyHint: true },
+    } as any,
+    async (_input: Record<string, never>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:bookings:read"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:bookings:read"], origin) as never;
+      const bookings = await listProviderBookings(auth.userId);
+      return bookings
+        ? textResult({ bookings })
+        : textResult({ error: "Provider profile required" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_update_booking_status",
+    {
+      title: "Update booking status",
+      description: "Move a booking through its allowed lifecycle. Provider confirmation requires a currently open availabilitySlotId; customers may cancel eligible bookings. A quote acceptance alone remains REQUESTED and is not confirmed.",
+      inputSchema: BookingStatusInput,
+      securitySchemes: oauthSecurity(["sentin:bookings:write"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      _meta: { ui: { resourceUri: MARKETPLACE_RESOURCE_URI } },
+    } as any,
+    async (input: z.infer<typeof BookingStatusInput>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:bookings:write"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:bookings:write"], origin) as never;
+      const result = await updateBookingStatus(auth.userId, input.bookingId, input.status, input.availabilitySlotId);
+      return "error" in result
+        ? textResult({ error: result.error }, { isError: true })
+        : textResult({ type: "booking", booking: result.booking }, { ui: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_list_my_provider_availability",
+    {
+      title: "List my availability",
+      description: "Read future appointment slots owned by the signed-in provider.",
+      inputSchema: ProviderBookingsInput,
+      securitySchemes: oauthSecurity(["sentin:availability:read"]),
+      annotations: { readOnlyHint: true },
+    } as any,
+    async (_input: Record<string, never>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:availability:read"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:availability:read"], origin) as never;
+      const slots = await listProviderAvailability(auth.userId);
+      return slots
+        ? textResult({ slots })
+        : textResult({ error: "Provider profile required" }, { isError: true });
+    },
+  );
+
+  server.registerTool(
+    "sentin_create_provider_availability",
+    {
+      title: "Publish provider availability",
+      description: "Publish one real future appointment slot in UTC. The start and end must not overlap another slot.",
+      inputSchema: AvailabilityInput,
+      securitySchemes: oauthSecurity(["sentin:availability:write"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    } as any,
+    async (input: z.infer<typeof AvailabilityInput>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:availability:write"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:availability:write"], origin) as never;
+      const result = await createProviderAvailability(auth.userId, input);
+      return "error" in result
+        ? textResult({ error: result.error }, { isError: true })
+        : textResult({ slot: result.slot });
+    },
+  );
+
+  server.registerTool(
+    "sentin_update_provider_availability",
+    {
+      title: "Block or reopen a provider slot",
+      description: "Block an open slot or reopen a blocked slot. A reserved appointment cannot be changed.",
+      inputSchema: AvailabilityUpdateInput,
+      securitySchemes: oauthSecurity(["sentin:availability:write"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    } as any,
+    async ({ slotId, status }: z.infer<typeof AvailabilityUpdateInput>, ctx: ToolContext) => {
+      const denied = authError(ctx, ["sentin:availability:write"], origin);
+      if (denied) return denied as never;
+      const auth = ctx.http?.authInfo;
+      if (!isSentinAuthInfo(auth)) return authError({}, ["sentin:availability:write"], origin) as never;
+      const result = await updateProviderAvailability(auth.userId, slotId, status);
+      return "error" in result
+        ? textResult({ error: result.error }, { isError: true })
+        : textResult({ slot: result.slot });
     },
   );
 
@@ -359,17 +582,26 @@ function render(data){
      const price=p.minimumPrice==null&&p.maximumPrice==null?"Price not listed":(p.minimumPrice==null?"From "+p.currency+" "+p.maximumPrice:p.maximumPrice==null?"From "+p.currency+" "+p.minimumPrice:p.currency+" "+p.minimumPrice+"–"+p.maximumPrice);
      grid.append(card(safeText(p.companyName),[p.city,p.countryCode].filter(Boolean).join(", ")+ (p.description?" · "+p.description:""),tag,price));
    }
+  }else if(type==="concierge"){
+    if(data.safetyGuidance)grid.append(card("Safety note",safeText(data.safetyGuidance),"IMPORTANT",""));
+    if(data.status==="NEEDS_CLARIFICATION")grid.append(card("One detail needed",safeText(data.clarifyingQuestion),""));
+    else if(data.job)grid.append(card("Request created",safeText(data.job.serviceName)+" · "+safeText(data.job.city)+", "+safeText(data.job.countryCode),safeText(data.status),safeText(data.matchedProviderCount)+" matched providers"));
+    else grid.append(node("div","empty","Sentin could not confirm a created request."));
+  }else if(type==="availability"){
+    const slots=Array.isArray(data.slots)?data.slots:[];
+    if(!slots.length)grid.append(node("div","empty","No open appointment slots are currently published."));
+    for(const slot of slots)grid.append(card("Available appointment",new Date(slot.startsAt).toLocaleString()+" – "+new Date(slot.endsAt).toLocaleTimeString(),safeText(slot.status),""));
  }else if(type==="quotes"){
    const quotes=Array.isArray(data.quotes)?data.quotes:[];
    if(!quotes.length){grid.append(node("div","empty","No provider quotes have arrived yet."));return}
    for(const q of quotes){const el=card(safeText(q.providerName),safeText(q.description),q.isDemo?"DEMO DATA":safeText(q.status),safeText(q.currency)+" "+safeText(q.amount));
      if(q.expiresAt)el.append(node("p","meta","Expires "+safeText(q.expiresAt)));
-     if(q.status==="SENT"&&!q.isDemo){const button=node("button","","Accept quote");button.type="button";button.onclick=async()=>{button.disabled=true;try{await bridgeReady;const result=await rpc("tools/call",{name:"sentin_accept_quote",arguments:{quoteId:q.id}});if(result?.structuredContent)render(result.structuredContent);else if(result?.content?.[0]?.text)app.append(node("p","notice",result.content[0].text));}catch{app.append(node("p","notice","The quote could not be accepted. Check the request status and try again."))}finally{button.disabled=false}};el.append(button)}
+      if(q.status==="SENT"){const button=node("button","","Accept quote");button.type="button";button.onclick=async()=>{button.disabled=true;try{await bridgeReady;const result=await rpc("tools/call",{name:"sentin_accept_quote",arguments:{quoteId:q.id}});if(result?.structuredContent)render(result.structuredContent);else if(result?.content?.[0]?.text)app.append(node("p","notice",result.content[0].text));}catch{app.append(node("p","notice","The quote could not be accepted. Check the request status and try again."))}finally{button.disabled=false}};el.append(button)}
      grid.append(el);
    }
  }else if(type==="booking"){
    const b=data.booking;if(!b){grid.append(node("div","empty","Booking details are not available."));return}
-   const el=card(safeText(b.providerName),"Booking "+safeText(b.id),safeText(b.status),b.scheduledAt?"Scheduled "+safeText(b.scheduledAt):"Schedule not set");grid.append(el);
+    const el=card(safeText(b.providerName),"Booking "+safeText(b.id),safeText(b.status),b.scheduledAt?"Scheduled "+safeText(b.scheduledAt):"Schedule not set");el.append(node("p","meta",b.paymentStatus==="NOT_CONFIGURED"?"No online payment was collected.":"Payment status: "+safeText(b.paymentStatus)));grid.append(el);
  }else if(type==="provider"){
    const p=data.provider;if(!p){grid.append(node("div","empty","Provider details are not available."));return}
    grid.append(card(safeText(p.companyName),safeText(p.description),p.isDemo?"DEMO DATA":safeText(p.verificationStatus),""));

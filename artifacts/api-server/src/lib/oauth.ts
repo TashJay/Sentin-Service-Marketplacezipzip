@@ -12,6 +12,10 @@ export const OAUTH_SCOPES = [
   "sentin:jobs:write",
   "sentin:bookings:read",
   "sentin:bookings:write",
+  "sentin:availability:read",
+  "sentin:availability:write",
+  "sentin:messages:read",
+  "sentin:messages:write",
 ] as const;
 
 export type OAuthScope = (typeof OAUTH_SCOPES)[number];

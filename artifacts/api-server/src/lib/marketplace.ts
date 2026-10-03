@@ -5,18 +5,25 @@ import {
   count,
   desc,
   eq,
+  gt,
+  gte,
   ilike,
   inArray,
   isNull,
   ne,
   or,
   sql,
+  lt,
 } from "drizzle-orm";
 import {
   auditLogsTable,
   bookingsTable,
+  bookingStatusHistoryTable,
   db,
   jobsTable,
+  jobMessagesTable,
+  paymentsTable,
+  providerAvailabilityTable,
   providersTable,
   quoteRequestsTable,
   quotesTable,
@@ -97,11 +104,16 @@ async function toQuote(row: typeof quotesTable.$inferSelect) {
 }
 
 async function toBooking(row: typeof bookingsTable.$inferSelect) {
-  const [provider] = await db
-    .select({ companyName: providersTable.companyName })
+  const [[provider], [payment]] = await Promise.all([
+    db.select({ companyName: providersTable.companyName })
     .from(providersTable)
     .where(eq(providersTable.id, row.providerId))
-    .limit(1);
+    .limit(1),
+    db.select({ status: paymentsTable.status })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.bookingId, row.id))
+      .limit(1),
+  ]);
   return {
     id: row.id,
     jobId: row.jobId,
@@ -110,6 +122,8 @@ async function toBooking(row: typeof bookingsTable.$inferSelect) {
     providerName: provider?.companyName ?? "Provider",
     status: row.status,
     scheduledAt: row.scheduledAt?.toISOString() ?? null,
+    availabilitySlotId: row.availabilitySlotId,
+    paymentStatus: payment?.status ?? "NOT_CONFIGURED",
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -355,6 +369,22 @@ export async function acceptQuote(userId: string, quoteId: string) {
       customerUserId: userId,
       status: "REQUESTED",
     }).returning();
+    await tx.insert(bookingStatusHistoryTable).values({
+      bookingId: booking.id,
+      actorId: userId,
+      fromStatus: null,
+      toStatus: "REQUESTED",
+      note: "Customer accepted a provider quote; provider confirmation is still required.",
+    });
+    await tx.insert(paymentsTable).values({
+      bookingId: booking.id,
+      customerUserId: userId,
+      amount: quote.amount,
+      currency: quote.currency,
+      provider: "UNCONFIGURED",
+      status: "NOT_CONFIGURED",
+      idempotencyKey: `booking:${booking.id}:payment`,
+    });
     await tx.update(quotesTable)
       .set({ status: "ACCEPTED" })
       .where(eq(quotesTable.id, quote.id));
@@ -367,17 +397,26 @@ export async function acceptQuote(userId: string, quoteId: string) {
       action: "quote.accepted",
       entityType: "booking",
       entityId: booking.id,
-      metadata: { quoteId, jobId: job.id },
+      metadata: { quoteId, jobId: job.id, paymentStatus: "NOT_CONFIGURED" },
     });
     return { booking: await toBooking(booking) };
   });
 }
 
 export async function getBooking(userId: string, bookingId: string) {
-  const [row] = await db.select().from(bookingsTable)
-    .where(and(eq(bookingsTable.id, bookingId), eq(bookingsTable.customerUserId, userId)))
+  const [row] = await db.select({ booking: bookingsTable }).from(bookingsTable)
+    .innerJoin(providersTable, eq(bookingsTable.providerId, providersTable.id))
+    .where(and(
+      eq(bookingsTable.id, bookingId),
+      or(eq(bookingsTable.customerUserId, userId), eq(providersTable.ownerId, userId)),
+    ))
     .limit(1);
-  return row ? toBooking(row) : null;
+  if (!row) return null;
+  const [booking, history] = await Promise.all([
+    toBooking(row.booking),
+    listBookingStatusHistory(row.booking.id),
+  ]);
+  return { ...booking, statusHistory: history };
 }
 
 export async function listMyBookings(userId: string) {
@@ -385,6 +424,319 @@ export async function listMyBookings(userId: string) {
     .where(eq(bookingsTable.customerUserId, userId))
     .orderBy(desc(bookingsTable.createdAt));
   return Promise.all(rows.map(toBooking));
+}
+
+async function listBookingStatusHistory(bookingId: string) {
+  const rows = await db.select().from(bookingStatusHistoryTable)
+    .where(eq(bookingStatusHistoryTable.bookingId, bookingId))
+    .orderBy(asc(bookingStatusHistoryTable.createdAt));
+  return rows.map((row) => ({
+    id: row.id,
+    actorId: row.actorId,
+    fromStatus: row.fromStatus,
+    toStatus: row.toStatus,
+    note: row.note,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function listProviderBookings(userId: string) {
+  const rows = await db.select({ booking: bookingsTable })
+    .from(bookingsTable)
+    .innerJoin(providersTable, eq(bookingsTable.providerId, providersTable.id))
+    .where(eq(providersTable.ownerId, userId))
+    .orderBy(desc(bookingsTable.createdAt));
+  return Promise.all(rows.map(({ booking }) => toBooking(booking)));
+}
+
+export async function listProviderAvailability(userId: string) {
+  const [provider] = await db.select({ id: providersTable.id }).from(providersTable)
+    .where(and(eq(providersTable.ownerId, userId), eq(providersTable.active, true)))
+    .limit(1);
+  if (!provider) return null;
+  const rows = await db.select().from(providerAvailabilityTable)
+    .where(and(eq(providerAvailabilityTable.providerId, provider.id), gte(providerAvailabilityTable.endsAt, new Date())))
+    .orderBy(asc(providerAvailabilityTable.startsAt))
+    .limit(200);
+  return rows.map(toAvailability);
+}
+
+function toAvailability(row: typeof providerAvailabilityTable.$inferSelect) {
+  return {
+    id: row.id,
+    providerId: row.providerId,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    status: row.status,
+  };
+}
+
+export async function listPublicProviderAvailability(
+  providerId: string,
+  from = new Date(),
+  to = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+) {
+  const [provider] = await db.select({ id: providersTable.id }).from(providersTable)
+    .where(and(eq(providersTable.id, providerId), ...visibleProviderFilters()))
+    .limit(1);
+  if (!provider) return null;
+  const rows = await db.select().from(providerAvailabilityTable)
+    .where(and(
+      eq(providerAvailabilityTable.providerId, providerId),
+      eq(providerAvailabilityTable.status, "OPEN"),
+      gte(providerAvailabilityTable.startsAt, from),
+      lt(providerAvailabilityTable.startsAt, to),
+      gt(providerAvailabilityTable.endsAt, new Date()),
+    ))
+    .orderBy(asc(providerAvailabilityTable.startsAt))
+    .limit(100);
+  return rows.map(toAvailability);
+}
+
+export async function createProviderAvailability(
+  userId: string,
+  input: { startsAt: string; endsAt: string },
+) {
+  const startsAt = new Date(input.startsAt);
+  const endsAt = new Date(input.endsAt);
+  if (
+    !Number.isFinite(startsAt.getTime())
+    || !Number.isFinite(endsAt.getTime())
+    || startsAt.getTime() <= Date.now()
+    || endsAt.getTime() <= startsAt.getTime()
+    || endsAt.getTime() - startsAt.getTime() > 12 * 60 * 60 * 1000
+  ) return { error: "INVALID_SLOT" as const };
+
+  return db.transaction(async (tx) => {
+    const [provider] = await tx.select().from(providersTable)
+      .where(and(eq(providersTable.ownerId, userId), eq(providersTable.active, true)))
+      .for("update")
+      .limit(1);
+    if (!provider) return { error: "PROVIDER_PROFILE_REQUIRED" as const };
+    const [overlap] = await tx.select({ id: providerAvailabilityTable.id })
+      .from(providerAvailabilityTable)
+      .where(and(
+        eq(providerAvailabilityTable.providerId, provider.id),
+        lt(providerAvailabilityTable.startsAt, endsAt),
+        gt(providerAvailabilityTable.endsAt, startsAt),
+      ))
+      .limit(1);
+    if (overlap) return { error: "AVAILABILITY_CONFLICT" as const };
+    const [slot] = await tx.insert(providerAvailabilityTable).values({
+      providerId: provider.id,
+      startsAt,
+      endsAt,
+      status: "OPEN",
+    }).returning();
+    await tx.insert(auditLogsTable).values({
+      actorId: userId,
+      action: "provider.availability_created",
+      entityType: "provider_availability",
+      entityId: slot.id,
+      metadata: { startsAt: slot.startsAt.toISOString(), endsAt: slot.endsAt.toISOString() },
+    });
+    return { slot: toAvailability(slot) };
+  });
+}
+
+export async function updateProviderAvailability(
+  userId: string,
+  slotId: string,
+  status: "OPEN" | "BLOCKED",
+) {
+  return db.transaction(async (tx) => {
+    const [slot] = await tx.select({ availability: providerAvailabilityTable, ownerId: providersTable.ownerId })
+      .from(providerAvailabilityTable)
+      .innerJoin(providersTable, eq(providerAvailabilityTable.providerId, providersTable.id))
+      .where(eq(providerAvailabilityTable.id, slotId))
+      .for("update")
+      .limit(1);
+    if (!slot || slot.ownerId !== userId) return { error: "NOT_FOUND" as const };
+    if (slot.availability.status === "RESERVED") return { error: "SLOT_RESERVED" as const };
+    const [updated] = await tx.update(providerAvailabilityTable)
+      .set({ status })
+      .where(eq(providerAvailabilityTable.id, slotId))
+      .returning();
+    await tx.insert(auditLogsTable).values({
+      actorId: userId,
+      action: "provider.availability_updated",
+      entityType: "provider_availability",
+      entityId: slotId,
+      metadata: { status },
+    });
+    return { slot: toAvailability(updated) };
+  });
+}
+
+export async function updateBookingStatus(
+  userId: string,
+  bookingId: string,
+  nextStatus: string,
+  availabilitySlotId?: string,
+) {
+  const result = await db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookingsTable)
+      .where(eq(bookingsTable.id, bookingId))
+      .for("update")
+      .limit(1);
+    if (!booking) return { error: "NOT_FOUND" as const };
+    const [provider] = await tx.select().from(providersTable)
+      .where(eq(providersTable.id, booking.providerId))
+      .limit(1);
+    const isCustomer = booking.customerUserId === userId;
+    const isProvider = provider?.ownerId === userId;
+    if (!isCustomer && !isProvider) return { error: "NOT_FOUND" as const };
+
+    const transitions: Record<string, string[]> = {
+      REQUESTED: ["CONFIRMED", "CANCELLED"],
+      PENDING_PROVIDER: ["CONFIRMED", "CANCELLED"],
+      CONFIRMED: ["EN_ROUTE", "CANCELLED"],
+      EN_ROUTE: ["ARRIVED", "CANCELLED"],
+      ARRIVED: ["IN_PROGRESS"],
+      IN_PROGRESS: ["COMPLETED", "DISPUTED"],
+      COMPLETED: ["DISPUTED"],
+    };
+    if (!(transitions[booking.status] ?? []).includes(nextStatus)) {
+      return { error: "INVALID_TRANSITION" as const };
+    }
+    if (isCustomer && nextStatus !== "CANCELLED" && nextStatus !== "DISPUTED") {
+      return { error: "FORBIDDEN" as const };
+    }
+    if (isProvider && nextStatus === "DISPUTED") return { error: "FORBIDDEN" as const };
+    if (nextStatus === "CONFIRMED" && (!isProvider || !availabilitySlotId)) {
+      return { error: "AVAILABILITY_REQUIRED" as const };
+    }
+
+    let scheduledAt: Date | null = booking.scheduledAt;
+    if (nextStatus === "CONFIRMED") {
+      const [slot] = await tx.select().from(providerAvailabilityTable)
+        .where(and(
+          eq(providerAvailabilityTable.id, availabilitySlotId!),
+          eq(providerAvailabilityTable.providerId, booking.providerId),
+          eq(providerAvailabilityTable.status, "OPEN"),
+          gt(providerAvailabilityTable.startsAt, new Date()),
+        ))
+        .for("update")
+        .limit(1);
+      if (!slot) return { error: "SLOT_UNAVAILABLE" as const };
+      const [quote] = await tx.select().from(quotesTable)
+        .where(eq(quotesTable.id, booking.quoteId))
+        .limit(1);
+      if (quote?.durationMinutes && slot.endsAt.getTime() - slot.startsAt.getTime() < quote.durationMinutes * 60_000) {
+        return { error: "SLOT_TOO_SHORT" as const };
+      }
+      const [reserved] = await tx.update(providerAvailabilityTable)
+        .set({ status: "RESERVED" })
+        .where(and(
+          eq(providerAvailabilityTable.id, slot.id),
+          eq(providerAvailabilityTable.status, "OPEN"),
+        ))
+        .returning({ id: providerAvailabilityTable.id });
+      if (!reserved) return { error: "SLOT_UNAVAILABLE" as const };
+      scheduledAt = slot.startsAt;
+    }
+
+    if (nextStatus === "CANCELLED" && booking.availabilitySlotId) {
+      await tx.update(providerAvailabilityTable)
+        .set({ status: "OPEN" })
+        .where(and(
+          eq(providerAvailabilityTable.id, booking.availabilitySlotId),
+          eq(providerAvailabilityTable.status, "RESERVED"),
+        ));
+    }
+    const [updated] = await tx.update(bookingsTable)
+      .set({
+        status: nextStatus,
+        ...(nextStatus === "CONFIRMED" ? { availabilitySlotId, scheduledAt } : {}),
+        ...(nextStatus === "CANCELLED" ? { availabilitySlotId: null, scheduledAt: null } : {}),
+      })
+      .where(eq(bookingsTable.id, bookingId))
+      .returning();
+    await tx.insert(bookingStatusHistoryTable).values({
+      bookingId,
+      actorId: userId,
+      fromStatus: booking.status,
+      toStatus: nextStatus,
+      note: nextStatus === "CONFIRMED"
+        ? `Provider reserved availability slot ${availabilitySlotId}.`
+        : null,
+    });
+    if (nextStatus === "CANCELLED") {
+      await tx.update(jobsTable)
+        .set({ status: isProvider ? "OPEN" : "CANCELLED" })
+        .where(eq(jobsTable.id, booking.jobId));
+    } else if (nextStatus === "COMPLETED") {
+      await tx.update(jobsTable).set({ status: "COMPLETED" }).where(eq(jobsTable.id, booking.jobId));
+    }
+    await tx.insert(auditLogsTable).values({
+      actorId: userId,
+      action: "booking.status_changed",
+      entityType: "booking",
+      entityId: bookingId,
+      metadata: { fromStatus: booking.status, toStatus: nextStatus, availabilitySlotId: availabilitySlotId ?? null },
+    });
+    return { booking: updated };
+  });
+  if ("error" in result) return result;
+  return { booking: await toBooking(result.booking) };
+}
+
+async function canAccessJobMessages(userId: string, jobId: string) {
+  const [owned] = await db.select({ id: jobsTable.id }).from(jobsTable)
+    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.customerUserId, userId)))
+    .limit(1);
+  if (owned) return true;
+  const [matched] = await db.select({ id: quoteRequestsTable.id })
+    .from(quoteRequestsTable)
+    .innerJoin(providersTable, eq(quoteRequestsTable.providerId, providersTable.id))
+    .where(and(
+      eq(quoteRequestsTable.jobId, jobId),
+      eq(providersTable.ownerId, userId),
+    ))
+    .limit(1);
+  return Boolean(matched);
+}
+
+export async function listJobMessages(userId: string, jobId: string) {
+  if (!(await canAccessJobMessages(userId, jobId))) return null;
+  const rows = await db.select().from(jobMessagesTable)
+    .where(eq(jobMessagesTable.jobId, jobId))
+    .orderBy(asc(jobMessagesTable.createdAt))
+    .limit(200);
+  return rows.map((row) => ({
+    id: row.id,
+    jobId: row.jobId,
+    senderUserId: row.senderUserId,
+    body: row.body,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function sendJobMessage(userId: string, jobId: string, body: string) {
+  const content = body.trim();
+  if (content.length < 1 || content.length > 2000) return { error: "INVALID_MESSAGE" as const };
+  if (!(await canAccessJobMessages(userId, jobId))) return { error: "NOT_FOUND" as const };
+  const [message] = await db.insert(jobMessagesTable).values({
+    jobId,
+    senderUserId: userId,
+    body: content,
+  }).returning();
+  await db.insert(auditLogsTable).values({
+    actorId: userId,
+    action: "job.message_sent",
+    entityType: "job_message",
+    entityId: message.id,
+    metadata: { jobId, bodyLength: content.length },
+  });
+  return {
+    message: {
+      id: message.id,
+      jobId: message.jobId,
+      senderUserId: message.senderUserId,
+      body: message.body,
+      createdAt: message.createdAt.toISOString(),
+    },
+  };
 }
 
 export async function getDashboardSummary(userId: string) {

@@ -343,7 +343,17 @@ export const AcceptQuoteResponse = zod.object({
   "providerName": zod.string(),
   "status": zod.enum(['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
   "scheduledAt": zod.coerce.date().nullable(),
+  "availabilitySlotId": zod.string().uuid().nullable(),
+  "paymentStatus": zod.enum(['NOT_CONFIGURED', 'PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED']),
+  "createdAt": zod.coerce.date(),
+  "statusHistory": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string(),
+  "fromStatus": zod.string().nullable(),
+  "toStatus": zod.string(),
+  "note": zod.string().nullable(),
   "createdAt": zod.coerce.date()
+})).optional()
 })
 
 
@@ -362,7 +372,17 @@ export const GetBookingResponse = zod.object({
   "providerName": zod.string(),
   "status": zod.enum(['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
   "scheduledAt": zod.coerce.date().nullable(),
+  "availabilitySlotId": zod.string().uuid().nullable(),
+  "paymentStatus": zod.enum(['NOT_CONFIGURED', 'PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED']),
+  "createdAt": zod.coerce.date(),
+  "statusHistory": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string(),
+  "fromStatus": zod.string().nullable(),
+  "toStatus": zod.string(),
+  "note": zod.string().nullable(),
   "createdAt": zod.coerce.date()
+})).optional()
 })
 
 
@@ -377,9 +397,242 @@ export const ListMyBookingsResponseItem = zod.object({
   "providerName": zod.string(),
   "status": zod.enum(['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
   "scheduledAt": zod.coerce.date().nullable(),
+  "availabilitySlotId": zod.string().uuid().nullable(),
+  "paymentStatus": zod.enum(['NOT_CONFIGURED', 'PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED']),
+  "createdAt": zod.coerce.date(),
+  "statusHistory": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string(),
+  "fromStatus": zod.string().nullable(),
+  "toStatus": zod.string(),
+  "note": zod.string().nullable(),
   "createdAt": zod.coerce.date()
+})).optional()
 })
 export const ListMyBookingsResponse = zod.array(ListMyBookingsResponseItem)
+
+
+/**
+ * @summary List bookings for the signed-in provider
+ */
+export const ListProviderBookingsResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "jobId": zod.string().uuid(),
+  "quoteId": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "providerName": zod.string(),
+  "status": zod.enum(['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
+  "scheduledAt": zod.coerce.date().nullable(),
+  "availabilitySlotId": zod.string().uuid().nullable(),
+  "paymentStatus": zod.enum(['NOT_CONFIGURED', 'PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED']),
+  "createdAt": zod.coerce.date(),
+  "statusHistory": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string(),
+  "fromStatus": zod.string().nullable(),
+  "toStatus": zod.string(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})).optional()
+})
+export const ListProviderBookingsResponse = zod.array(ListProviderBookingsResponseItem)
+
+
+/**
+ * Providers may confirm only by reserving one of their real open availability slots. Customers may cancel eligible bookings.
+ * @summary Advance or cancel a booking
+ */
+export const UpdateBookingStatusParams = zod.object({
+  "bookingId": zod.coerce.string().uuid()
+})
+
+export const UpdateBookingStatusBody = zod.object({
+  "status": zod.enum(['CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
+  "availabilitySlotId": zod.string().uuid().optional()
+})
+
+export const UpdateBookingStatusResponse = zod.object({
+  "id": zod.string().uuid(),
+  "jobId": zod.string().uuid(),
+  "quoteId": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "providerName": zod.string(),
+  "status": zod.enum(['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED']),
+  "scheduledAt": zod.coerce.date().nullable(),
+  "availabilitySlotId": zod.string().uuid().nullable(),
+  "paymentStatus": zod.enum(['NOT_CONFIGURED', 'PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED']),
+  "createdAt": zod.coerce.date(),
+  "statusHistory": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string(),
+  "fromStatus": zod.string().nullable(),
+  "toStatus": zod.string(),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})).optional()
+})
+
+
+/**
+ * @summary List a provider's published availability
+ */
+export const ListPublicProviderAvailabilityParams = zod.object({
+  "providerId": zod.coerce.string().uuid()
+})
+
+export const ListPublicProviderAvailabilityResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['OPEN', 'RESERVED', 'BLOCKED'])
+})
+export const ListPublicProviderAvailabilityResponse = zod.array(ListPublicProviderAvailabilityResponseItem)
+
+
+/**
+ * @summary List the signed-in provider's appointment slots
+ */
+export const ListProviderAvailabilityResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['OPEN', 'RESERVED', 'BLOCKED'])
+})
+export const ListProviderAvailabilityResponse = zod.array(ListProviderAvailabilityResponseItem)
+
+
+/**
+ * @summary Publish an appointment slot
+ */
+export const CreateProviderAvailabilityBody = zod.object({
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date()
+})
+
+export const CreateProviderAvailabilityResponse = zod.object({
+  "id": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['OPEN', 'RESERVED', 'BLOCKED'])
+})
+
+
+/**
+ * @summary Open or block one of the provider's appointment slots
+ */
+export const UpdateProviderAvailabilityParams = zod.object({
+  "slotId": zod.coerce.string().uuid()
+})
+
+export const UpdateProviderAvailabilityBody = zod.object({
+  "status": zod.enum(['OPEN', 'BLOCKED'])
+})
+
+export const UpdateProviderAvailabilityResponse = zod.object({
+  "id": zod.string().uuid(),
+  "providerId": zod.string().uuid(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "status": zod.enum(['OPEN', 'RESERVED', 'BLOCKED'])
+})
+
+
+/**
+ * @summary List messages for a request participant
+ */
+export const ListJobMessagesParams = zod.object({
+  "jobId": zod.coerce.string().uuid()
+})
+
+export const ListJobMessagesResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "jobId": zod.string().uuid(),
+  "senderUserId": zod.string(),
+  "body": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListJobMessagesResponse = zod.array(ListJobMessagesResponseItem)
+
+
+/**
+ * @summary Send a message to the other request participant
+ */
+export const SendJobMessageParams = zod.object({
+  "jobId": zod.coerce.string().uuid()
+})
+
+export const sendJobMessageBodyBodyMax = 2000;
+
+
+
+export const SendJobMessageBody = zod.object({
+  "body": zod.string().min(1).max(sendJobMessageBodyBodyMax)
+})
+
+export const SendJobMessageResponse = zod.object({
+  "id": zod.string().uuid(),
+  "jobId": zod.string().uuid(),
+  "senderUserId": zod.string(),
+  "body": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * Stores structured intake state and asks for essential missing information before creating a request.
+ * @summary Continue concierge intake or create a service request
+ */
+export const prepareServiceRequestBodyMessageMax = 3000;
+
+export const prepareServiceRequestBodyServiceSlugMin = 2;
+export const prepareServiceRequestBodyServiceSlugMax = 80;
+
+export const prepareServiceRequestBodyDescriptionMax = 3000;
+
+export const prepareServiceRequestBodyCityMax = 120;
+
+export const prepareServiceRequestBodyCountryCodeMin = 2;
+export const prepareServiceRequestBodyCountryCodeMax = 2;
+
+
+
+export const PrepareServiceRequestBody = zod.object({
+  "conversationId": zod.string().uuid().optional(),
+  "message": zod.string().min(1).max(prepareServiceRequestBodyMessageMax),
+  "serviceSlug": zod.string().min(prepareServiceRequestBodyServiceSlugMin).max(prepareServiceRequestBodyServiceSlugMax).optional(),
+  "description": zod.string().max(prepareServiceRequestBodyDescriptionMax).optional(),
+  "city": zod.string().max(prepareServiceRequestBodyCityMax).optional(),
+  "countryCode": zod.string().min(prepareServiceRequestBodyCountryCodeMin).max(prepareServiceRequestBodyCountryCodeMax).optional(),
+  "urgency": zod.enum(['unknown', 'standard', 'urgent', 'emergency']).optional(),
+  "propertyType": zod.enum(['unknown', 'residential', 'commercial']).optional()
+})
+
+export const PrepareServiceRequestResponse = zod.object({
+  "status": zod.enum(['NEEDS_CLARIFICATION', 'JOB_CREATED']),
+  "conversationId": zod.string().uuid(),
+  "missingFields": zod.array(zod.string()).optional(),
+  "clarifyingQuestion": zod.string().nullish(),
+  "jobId": zod.string().uuid().nullish(),
+  "matchedProviderCount": zod.number().int().optional(),
+  "availabilityMessage": zod.string().optional(),
+  "safetyGuidance": zod.string().optional(),
+  "job": zod.object({
+  "id": zod.string().uuid(),
+  "serviceSlug": zod.string(),
+  "serviceName": zod.string(),
+  "description": zod.string(),
+  "city": zod.string(),
+  "countryCode": zod.string(),
+  "urgency": zod.enum(['unknown', 'standard', 'urgent', 'emergency']),
+  "propertyType": zod.enum(['unknown', 'residential', 'commercial']),
+  "status": zod.enum(['DRAFT', 'OPEN', 'QUOTED', 'BOOKED', 'COMPLETED', 'CANCELLED']),
+  "matchedProviderCount": zod.number().int(),
+  "createdAt": zod.coerce.date()
+}).optional()
+})
 
 
 /**

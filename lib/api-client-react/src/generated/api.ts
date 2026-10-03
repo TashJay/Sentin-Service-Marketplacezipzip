@@ -20,11 +20,19 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AvailabilityInput,
+  AvailabilitySlot,
+  AvailabilityStatusInput,
   Booking,
+  BookingStatusInput,
+  ConciergeInput,
+  ConciergeResult,
   DashboardSummary,
   HealthStatus,
   Job,
   JobInput,
+  JobMessage,
+  MessageInput,
   Provider,
   ProviderProfileInput,
   Quote,
@@ -1250,6 +1258,759 @@ export function useListMyBookings<TData = Awaited<ReturnType<typeof listMyBookin
 
 
 
+
+export const getListProviderBookingsUrl = () => {
+
+
+
+
+  return `/api/provider/bookings`
+}
+
+/**
+ * @summary List bookings for the signed-in provider
+ */
+export const listProviderBookings = async ( options?: Parameters<typeof customFetch>[1]): Promise<Booking[]> => {
+
+  return customFetch<Booking[]>(getListProviderBookingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProviderBookingsQueryKey = () => {
+    return [
+    `/api/provider/bookings`
+    ] as const;
+    }
+
+
+export const getListProviderBookingsQueryOptions = <TData = Awaited<ReturnType<typeof listProviderBookings>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviderBookings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProviderBookingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProviderBookings>>> = ({ signal }) => listProviderBookings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProviderBookings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProviderBookingsQueryResult = NonNullable<Awaited<ReturnType<typeof listProviderBookings>>>
+export type ListProviderBookingsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List bookings for the signed-in provider
+ */
+
+export function useListProviderBookings<TData = Awaited<ReturnType<typeof listProviderBookings>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviderBookings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProviderBookingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateBookingStatusUrl = (bookingId: string,) => {
+
+
+
+
+  return `/api/bookings/${bookingId}/status`
+}
+
+/**
+ * Providers may confirm only by reserving one of their real open availability slots. Customers may cancel eligible bookings.
+ * @summary Advance or cancel a booking
+ */
+export const updateBookingStatus = async (bookingId: string,
+    bookingStatusInput: BookingStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<Booking> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Booking>(getUpdateBookingStatusUrl(bookingId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(bookingStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateBookingStatusMutationKey = () => ['updateBookingStatus'] as const;
+
+export const getUpdateBookingStatusMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBookingStatus>>, TError,UpdateBookingStatusMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBookingStatus>>, TError,UpdateBookingStatusMutationVariables, TContext> => {
+
+const mutationKey = getUpdateBookingStatusMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBookingStatus>>, UpdateBookingStatusMutationVariables> = (props) => {
+          const {bookingId,data} = props ?? {};
+
+          return  updateBookingStatus(bookingId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBookingStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateBookingStatus>>>
+    export type UpdateBookingStatusMutationBody = BodyType<BookingStatusInput>
+    export type UpdateBookingStatusMutationError = ErrorType<void>
+    export type UpdateBookingStatusMutationVariables = {bookingId: string;data: BodyType<BookingStatusInput>}
+
+    /**
+ * @summary Advance or cancel a booking
+ */
+export const useUpdateBookingStatus = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBookingStatus>>, TError,UpdateBookingStatusMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBookingStatus>>,
+        TError,
+        UpdateBookingStatusMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateBookingStatusMutationOptions(options));
+    }
+
+export const getListPublicProviderAvailabilityUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/providers/${providerId}/availability`
+}
+
+/**
+ * @summary List a provider's published availability
+ */
+export const listPublicProviderAvailability = async (providerId: string, options?: Parameters<typeof customFetch>[1]): Promise<AvailabilitySlot[]> => {
+
+  return customFetch<AvailabilitySlot[]>(getListPublicProviderAvailabilityUrl(providerId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPublicProviderAvailabilityQueryKey = (providerId: string,) => {
+    return [
+    `/api/providers/${providerId}/availability`
+    ] as const;
+    }
+
+
+export const getListPublicProviderAvailabilityQueryOptions = <TData = Awaited<ReturnType<typeof listPublicProviderAvailability>>, TError = ErrorType<void>>(providerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicProviderAvailability>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPublicProviderAvailabilityQueryKey(providerId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPublicProviderAvailability>>> = ({ signal }) => listPublicProviderAvailability(providerId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: providerId !== null && providerId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPublicProviderAvailability>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPublicProviderAvailabilityQueryResult = NonNullable<Awaited<ReturnType<typeof listPublicProviderAvailability>>>
+export type ListPublicProviderAvailabilityQueryError = ErrorType<void>
+
+
+/**
+ * @summary List a provider's published availability
+ */
+
+export function useListPublicProviderAvailability<TData = Awaited<ReturnType<typeof listPublicProviderAvailability>>, TError = ErrorType<void>>(
+ providerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicProviderAvailability>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPublicProviderAvailabilityQueryOptions(providerId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListProviderAvailabilityUrl = () => {
+
+
+
+
+  return `/api/provider/availability`
+}
+
+/**
+ * @summary List the signed-in provider's appointment slots
+ */
+export const listProviderAvailability = async ( options?: Parameters<typeof customFetch>[1]): Promise<AvailabilitySlot[]> => {
+
+  return customFetch<AvailabilitySlot[]>(getListProviderAvailabilityUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProviderAvailabilityQueryKey = () => {
+    return [
+    `/api/provider/availability`
+    ] as const;
+    }
+
+
+export const getListProviderAvailabilityQueryOptions = <TData = Awaited<ReturnType<typeof listProviderAvailability>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviderAvailability>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProviderAvailabilityQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProviderAvailability>>> = ({ signal }) => listProviderAvailability({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProviderAvailability>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProviderAvailabilityQueryResult = NonNullable<Awaited<ReturnType<typeof listProviderAvailability>>>
+export type ListProviderAvailabilityQueryError = ErrorType<void>
+
+
+/**
+ * @summary List the signed-in provider's appointment slots
+ */
+
+export function useListProviderAvailability<TData = Awaited<ReturnType<typeof listProviderAvailability>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviderAvailability>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProviderAvailabilityQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProviderAvailabilityUrl = () => {
+
+
+
+
+  return `/api/provider/availability`
+}
+
+/**
+ * @summary Publish an appointment slot
+ */
+export const createProviderAvailability = async (availabilityInput: AvailabilityInput, options?: Parameters<typeof customFetch>[1]): Promise<AvailabilitySlot> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AvailabilitySlot>(getCreateProviderAvailabilityUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(availabilityInput)
+  }
+);}
+
+
+
+
+
+export const getCreateProviderAvailabilityMutationKey = () => ['createProviderAvailability'] as const;
+
+export const getCreateProviderAvailabilityMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProviderAvailability>>, TError,CreateProviderAvailabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProviderAvailability>>, TError,CreateProviderAvailabilityMutationVariables, TContext> => {
+
+const mutationKey = getCreateProviderAvailabilityMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProviderAvailability>>, CreateProviderAvailabilityMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createProviderAvailability(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProviderAvailabilityMutationResult = NonNullable<Awaited<ReturnType<typeof createProviderAvailability>>>
+    export type CreateProviderAvailabilityMutationBody = BodyType<AvailabilityInput>
+    export type CreateProviderAvailabilityMutationError = ErrorType<void>
+    export type CreateProviderAvailabilityMutationVariables = {data: BodyType<AvailabilityInput>}
+
+    /**
+ * @summary Publish an appointment slot
+ */
+export const useCreateProviderAvailability = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProviderAvailability>>, TError,CreateProviderAvailabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProviderAvailability>>,
+        TError,
+        CreateProviderAvailabilityMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateProviderAvailabilityMutationOptions(options));
+    }
+
+export const getUpdateProviderAvailabilityUrl = (slotId: string,) => {
+
+
+
+
+  return `/api/provider/availability/${slotId}`
+}
+
+/**
+ * @summary Open or block one of the provider's appointment slots
+ */
+export const updateProviderAvailability = async (slotId: string,
+    availabilityStatusInput: AvailabilityStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<AvailabilitySlot> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AvailabilitySlot>(getUpdateProviderAvailabilityUrl(slotId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(availabilityStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateProviderAvailabilityMutationKey = () => ['updateProviderAvailability'] as const;
+
+export const getUpdateProviderAvailabilityMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderAvailability>>, TError,UpdateProviderAvailabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProviderAvailability>>, TError,UpdateProviderAvailabilityMutationVariables, TContext> => {
+
+const mutationKey = getUpdateProviderAvailabilityMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProviderAvailability>>, UpdateProviderAvailabilityMutationVariables> = (props) => {
+          const {slotId,data} = props ?? {};
+
+          return  updateProviderAvailability(slotId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProviderAvailabilityMutationResult = NonNullable<Awaited<ReturnType<typeof updateProviderAvailability>>>
+    export type UpdateProviderAvailabilityMutationBody = BodyType<AvailabilityStatusInput>
+    export type UpdateProviderAvailabilityMutationError = ErrorType<void>
+    export type UpdateProviderAvailabilityMutationVariables = {slotId: string;data: BodyType<AvailabilityStatusInput>}
+
+    /**
+ * @summary Open or block one of the provider's appointment slots
+ */
+export const useUpdateProviderAvailability = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderAvailability>>, TError,UpdateProviderAvailabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateProviderAvailability>>,
+        TError,
+        UpdateProviderAvailabilityMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateProviderAvailabilityMutationOptions(options));
+    }
+
+export const getListJobMessagesUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/messages`
+}
+
+/**
+ * @summary List messages for a request participant
+ */
+export const listJobMessages = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<JobMessage[]> => {
+
+  return customFetch<JobMessage[]>(getListJobMessagesUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobMessagesQueryKey = (jobId: string,) => {
+    return [
+    `/api/jobs/${jobId}/messages`
+    ] as const;
+    }
+
+
+export const getListJobMessagesQueryOptions = <TData = Awaited<ReturnType<typeof listJobMessages>>, TError = ErrorType<void>>(jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobMessagesQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobMessages>>> = ({ signal }) => listJobMessages(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listJobMessages>>>
+export type ListJobMessagesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List messages for a request participant
+ */
+
+export function useListJobMessages<TData = Awaited<ReturnType<typeof listJobMessages>>, TError = ErrorType<void>>(
+ jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobMessagesQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSendJobMessageUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/messages`
+}
+
+/**
+ * @summary Send a message to the other request participant
+ */
+export const sendJobMessage = async (jobId: string,
+    messageInput: MessageInput, options?: Parameters<typeof customFetch>[1]): Promise<JobMessage> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<JobMessage>(getSendJobMessageUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(messageInput)
+  }
+);}
+
+
+
+
+
+export const getSendJobMessageMutationKey = () => ['sendJobMessage'] as const;
+
+export const getSendJobMessageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendJobMessage>>, TError,SendJobMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendJobMessage>>, TError,SendJobMessageMutationVariables, TContext> => {
+
+const mutationKey = getSendJobMessageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendJobMessage>>, SendJobMessageMutationVariables> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  sendJobMessage(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendJobMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendJobMessage>>>
+    export type SendJobMessageMutationBody = BodyType<MessageInput>
+    export type SendJobMessageMutationError = ErrorType<void>
+    export type SendJobMessageMutationVariables = {jobId: string;data: BodyType<MessageInput>}
+
+    /**
+ * @summary Send a message to the other request participant
+ */
+export const useSendJobMessage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendJobMessage>>, TError,SendJobMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendJobMessage>>,
+        TError,
+        SendJobMessageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSendJobMessageMutationOptions(options));
+    }
+
+export const getPrepareServiceRequestUrl = () => {
+
+
+
+
+  return `/api/concierge/prepare`
+}
+
+/**
+ * Stores structured intake state and asks for essential missing information before creating a request.
+ * @summary Continue concierge intake or create a service request
+ */
+export const prepareServiceRequest = async (conciergeInput: ConciergeInput, options?: Parameters<typeof customFetch>[1]): Promise<ConciergeResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ConciergeResult>(getPrepareServiceRequestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(conciergeInput)
+  }
+);}
+
+
+
+
+
+export const getPrepareServiceRequestMutationKey = () => ['prepareServiceRequest'] as const;
+
+export const getPrepareServiceRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareServiceRequest>>, TError,PrepareServiceRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof prepareServiceRequest>>, TError,PrepareServiceRequestMutationVariables, TContext> => {
+
+const mutationKey = getPrepareServiceRequestMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof prepareServiceRequest>>, PrepareServiceRequestMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  prepareServiceRequest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PrepareServiceRequestMutationResult = NonNullable<Awaited<ReturnType<typeof prepareServiceRequest>>>
+    export type PrepareServiceRequestMutationBody = BodyType<ConciergeInput>
+    export type PrepareServiceRequestMutationError = ErrorType<void>
+    export type PrepareServiceRequestMutationVariables = {data: BodyType<ConciergeInput>}
+
+    /**
+ * @summary Continue concierge intake or create a service request
+ */
+export const usePrepareServiceRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareServiceRequest>>, TError,PrepareServiceRequestMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof prepareServiceRequest>>,
+        TError,
+        PrepareServiceRequestMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPrepareServiceRequestMutationOptions(options));
+    }
 
 export const getGetDashboardSummaryUrl = () => {
 

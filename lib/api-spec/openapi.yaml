@@ -335,6 +335,208 @@ paths:
                   $ref: "#/components/schemas/Booking"
         "401":
           description: Authentication required
+  /provider/bookings:
+    get:
+      operationId: listProviderBookings
+      tags: [bookings]
+      summary: List bookings for the signed-in provider
+      responses:
+        "200":
+          description: Provider bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+        "401":
+          description: Authentication required
+        "404":
+          description: Provider profile required
+  /bookings/{bookingId}/status:
+    post:
+      operationId: updateBookingStatus
+      tags: [bookings]
+      summary: Advance or cancel a booking
+      description: Providers may confirm only by reserving one of their real open availability slots. Customers may cancel eligible bookings.
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookingStatusInput" }
+      responses:
+        "200":
+          description: Updated booking state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Booking" }
+        "400":
+          description: Invalid transition or unavailable appointment slot
+        "401":
+          description: Authentication required
+        "404":
+          description: Booking not found
+  /providers/{providerId}/availability:
+    get:
+      operationId: listPublicProviderAvailability
+      tags: [providers]
+      summary: List a provider's published availability
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Open appointment slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AvailabilitySlot" }
+        "404":
+          description: Provider not found
+  /provider/availability:
+    get:
+      operationId: listProviderAvailability
+      tags: [providers]
+      summary: List the signed-in provider's appointment slots
+      responses:
+        "200":
+          description: Provider availability slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AvailabilitySlot" }
+        "401":
+          description: Authentication required
+        "404":
+          description: Provider profile required
+    post:
+      operationId: createProviderAvailability
+      tags: [providers]
+      summary: Publish an appointment slot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AvailabilityInput" }
+      responses:
+        "201":
+          description: Availability slot created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AvailabilitySlot" }
+        "400":
+          description: Invalid or overlapping slot
+        "401":
+          description: Authentication required
+        "404":
+          description: Provider profile required
+  /provider/availability/{slotId}:
+    patch:
+      operationId: updateProviderAvailability
+      tags: [providers]
+      summary: Open or block one of the provider's appointment slots
+      parameters:
+        - name: slotId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AvailabilityStatusInput" }
+      responses:
+        "200":
+          description: Updated availability slot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AvailabilitySlot" }
+        "400":
+          description: Reserved slots cannot be changed
+        "401":
+          description: Authentication required
+        "404":
+          description: Availability slot not found
+  /jobs/{jobId}/messages:
+    get:
+      operationId: listJobMessages
+      tags: [jobs]
+      summary: List messages for a request participant
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Job conversation
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobMessage" }
+        "401":
+          description: Authentication required
+        "404":
+          description: Request not found or caller is not a participant
+    post:
+      operationId: sendJobMessage
+      tags: [jobs]
+      summary: Send a message to the other request participant
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MessageInput" }
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobMessage" }
+        "400":
+          description: Invalid message
+        "401":
+          description: Authentication required
+        "404":
+          description: Request not found or caller is not a participant
+  /concierge/prepare:
+    post:
+      operationId: prepareServiceRequest
+      tags: [jobs]
+      summary: Continue concierge intake or create a service request
+      description: Stores structured intake state and asks for essential missing information before creating a request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConciergeInput" }
+      responses:
+        "200":
+          description: Clarification request or newly created service request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConciergeResult" }
+        "400":
+          description: Invalid intake fields
+        "401":
+          description: Authentication required
+        "404":
+          description: Conversation not found
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -455,7 +657,7 @@ components:
         maximumPrice: { type: ["number", "null"], minimum: 0 }
     Booking:
       type: object
-      required: [id, jobId, quoteId, providerId, providerName, status, scheduledAt, createdAt]
+      required: [id, jobId, quoteId, providerId, providerName, status, scheduledAt, availabilitySlotId, paymentStatus, createdAt]
       properties:
         id: { type: string, format: uuid }
         jobId: { type: string, format: uuid }
@@ -464,7 +666,91 @@ components:
         providerName: { type: string }
         status: { type: string, enum: [REQUESTED, PENDING_PROVIDER, CONFIRMED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED, DISPUTED] }
         scheduledAt: { type: ["string", "null"], format: date-time }
+        availabilitySlotId: { type: ["string", "null"], format: uuid }
+        paymentStatus: { type: string, enum: [NOT_CONFIGURED, PENDING, AUTHORIZED, CAPTURED, FAILED, REFUNDED] }
         createdAt: { type: string, format: date-time }
+        statusHistory:
+          type: array
+          items: { $ref: "#/components/schemas/BookingStatusHistory" }
+    BookingStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [CONFIRMED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED, DISPUTED]
+        availabilitySlotId: { type: string, format: uuid }
+    BookingStatusHistory:
+      type: object
+      required: [id, actorId, fromStatus, toStatus, note, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actorId: { type: string }
+        fromStatus: { type: ["string", "null"] }
+        toStatus: { type: string }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    AvailabilitySlot:
+      type: object
+      required: [id, providerId, startsAt, endsAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        providerId: { type: string, format: uuid }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [OPEN, RESERVED, BLOCKED] }
+    AvailabilityInput:
+      type: object
+      required: [startsAt, endsAt]
+      properties:
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+    AvailabilityStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [OPEN, BLOCKED] }
+    MessageInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+    JobMessage:
+      type: object
+      required: [id, jobId, senderUserId, body, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        jobId: { type: string, format: uuid }
+        senderUserId: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    ConciergeInput:
+      type: object
+      required: [message]
+      properties:
+        conversationId: { type: string, format: uuid }
+        message: { type: string, minLength: 1, maxLength: 3000 }
+        serviceSlug: { type: string, minLength: 2, maxLength: 80 }
+        description: { type: string, maxLength: 3000 }
+        city: { type: string, maxLength: 120 }
+        countryCode: { type: string, minLength: 2, maxLength: 2 }
+        urgency: { type: string, enum: [unknown, standard, urgent, emergency] }
+        propertyType: { type: string, enum: [unknown, residential, commercial] }
+    ConciergeResult:
+      type: object
+      required: [status, conversationId]
+      properties:
+        status: { type: string, enum: [NEEDS_CLARIFICATION, JOB_CREATED] }
+        conversationId: { type: string, format: uuid }
+        missingFields:
+          type: array
+          items: { type: string }
+        clarifyingQuestion: { type: ["string", "null"] }
+        jobId: { type: ["string", "null"], format: uuid }
+        matchedProviderCount: { type: integer }
+        availabilityMessage: { type: string }
+        safetyGuidance: { type: string }
+        job: { $ref: "#/components/schemas/Job" }
     DashboardSummary:
       type: object
       required: [openJobs, quotesReceived, activeBookings, completedBookings]

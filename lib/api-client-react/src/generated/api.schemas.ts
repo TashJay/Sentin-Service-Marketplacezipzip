@@ -246,6 +246,29 @@ export const BookingStatus = {
   DISPUTED: 'DISPUTED',
 } as const;
 
+export type BookingPaymentStatus = typeof BookingPaymentStatus[keyof typeof BookingPaymentStatus];
+
+
+export const BookingPaymentStatus = {
+  NOT_CONFIGURED: 'NOT_CONFIGURED',
+  PENDING: 'PENDING',
+  AUTHORIZED: 'AUTHORIZED',
+  CAPTURED: 'CAPTURED',
+  FAILED: 'FAILED',
+  REFUNDED: 'REFUNDED',
+} as const;
+
+export interface BookingStatusHistory {
+  id: string;
+  actorId: string;
+  /** @nullable */
+  fromStatus: string | null;
+  toStatus: string;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+}
+
 export interface Booking {
   id: string;
   jobId: string;
@@ -255,7 +278,145 @@ export interface Booking {
   status: BookingStatus;
   /** @nullable */
   scheduledAt: string | null;
+  /** @nullable */
+  availabilitySlotId: string | null;
+  paymentStatus: BookingPaymentStatus;
   createdAt: string;
+  statusHistory?: BookingStatusHistory[];
+}
+
+export type BookingStatusInputStatus = typeof BookingStatusInputStatus[keyof typeof BookingStatusInputStatus];
+
+
+export const BookingStatusInputStatus = {
+  CONFIRMED: 'CONFIRMED',
+  EN_ROUTE: 'EN_ROUTE',
+  ARRIVED: 'ARRIVED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+  DISPUTED: 'DISPUTED',
+} as const;
+
+export interface BookingStatusInput {
+  status: BookingStatusInputStatus;
+  availabilitySlotId?: string;
+}
+
+export type AvailabilitySlotStatus = typeof AvailabilitySlotStatus[keyof typeof AvailabilitySlotStatus];
+
+
+export const AvailabilitySlotStatus = {
+  OPEN: 'OPEN',
+  RESERVED: 'RESERVED',
+  BLOCKED: 'BLOCKED',
+} as const;
+
+export interface AvailabilitySlot {
+  id: string;
+  providerId: string;
+  startsAt: string;
+  endsAt: string;
+  status: AvailabilitySlotStatus;
+}
+
+export interface AvailabilityInput {
+  startsAt: string;
+  endsAt: string;
+}
+
+export type AvailabilityStatusInputStatus = typeof AvailabilityStatusInputStatus[keyof typeof AvailabilityStatusInputStatus];
+
+
+export const AvailabilityStatusInputStatus = {
+  OPEN: 'OPEN',
+  BLOCKED: 'BLOCKED',
+} as const;
+
+export interface AvailabilityStatusInput {
+  status: AvailabilityStatusInputStatus;
+}
+
+export interface MessageInput {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  body: string;
+}
+
+export interface JobMessage {
+  id: string;
+  jobId: string;
+  senderUserId: string;
+  body: string;
+  createdAt: string;
+}
+
+export type ConciergeInputUrgency = typeof ConciergeInputUrgency[keyof typeof ConciergeInputUrgency];
+
+
+export const ConciergeInputUrgency = {
+  unknown: 'unknown',
+  standard: 'standard',
+  urgent: 'urgent',
+  emergency: 'emergency',
+} as const;
+
+export type ConciergeInputPropertyType = typeof ConciergeInputPropertyType[keyof typeof ConciergeInputPropertyType];
+
+
+export const ConciergeInputPropertyType = {
+  unknown: 'unknown',
+  residential: 'residential',
+  commercial: 'commercial',
+} as const;
+
+export interface ConciergeInput {
+  conversationId?: string;
+  /**
+     * @minLength 1
+     * @maxLength 3000
+     */
+  message: string;
+  /**
+     * @minLength 2
+     * @maxLength 80
+     */
+  serviceSlug?: string;
+  /** @maxLength 3000 */
+  description?: string;
+  /** @maxLength 120 */
+  city?: string;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     */
+  countryCode?: string;
+  urgency?: ConciergeInputUrgency;
+  propertyType?: ConciergeInputPropertyType;
+}
+
+export type ConciergeResultStatus = typeof ConciergeResultStatus[keyof typeof ConciergeResultStatus];
+
+
+export const ConciergeResultStatus = {
+  NEEDS_CLARIFICATION: 'NEEDS_CLARIFICATION',
+  JOB_CREATED: 'JOB_CREATED',
+} as const;
+
+export interface ConciergeResult {
+  status: ConciergeResultStatus;
+  conversationId: string;
+  missingFields?: string[];
+  /** @nullable */
+  clarifyingQuestion?: string | null;
+  /** @nullable */
+  jobId?: string | null;
+  matchedProviderCount?: number;
+  availabilityMessage?: string;
+  safetyGuidance?: string;
+  job?: Job;
 }
 
 export interface DashboardSummary {

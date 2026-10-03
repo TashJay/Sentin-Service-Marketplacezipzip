@@ -5,6 +5,8 @@ import {
   AcceptQuoteResponse,
   CreateJobBody,
   CreateJobResponse,
+  CreateProviderAvailabilityBody,
+  CreateProviderAvailabilityResponse,
   CreateProviderProfileBody,
   CreateProviderProfileResponse,
   GetBookingParams,
@@ -19,7 +21,24 @@ import {
   ListMyBookingsResponse,
   ListMyJobsResponse,
   ListProviderRequestsResponse,
+  ListProviderBookingsResponse,
+  ListProviderAvailabilityResponse,
+  ListPublicProviderAvailabilityParams,
+  ListPublicProviderAvailabilityResponse,
   ListServicesResponse,
+  ListJobMessagesParams,
+  ListJobMessagesResponse,
+  SendJobMessageBody,
+  SendJobMessageParams,
+  SendJobMessageResponse,
+  PrepareServiceRequestBody,
+  PrepareServiceRequestResponse,
+  UpdateBookingStatusBody,
+  UpdateBookingStatusParams,
+  UpdateBookingStatusResponse,
+  UpdateProviderAvailabilityBody,
+  UpdateProviderAvailabilityParams,
+  UpdateProviderAvailabilityResponse,
   SearchProvidersQueryParams,
   SearchProvidersResponse,
   SubmitQuoteBody,
@@ -28,6 +47,7 @@ import {
 } from "@workspace/api-zod";
 import {
   acceptQuote,
+  createProviderAvailability,
   createJob,
   createProviderProfile,
   getBooking,
@@ -38,11 +58,19 @@ import {
   listMyBookings,
   listMyJobs,
   listProviderRequests,
+  listProviderBookings,
+  listProviderAvailability,
+  listPublicProviderAvailability,
+  listJobMessages,
   listServices,
   requestQuotes,
   searchProviders,
+  sendJobMessage,
   submitQuote,
+  updateBookingStatus,
+  updateProviderAvailability,
 } from "../lib/marketplace";
+import { prepareServiceRequest } from "../lib/concierge";
 import { rateLimit } from "../lib/rate-limit";
 
 const router: IRouter = Router();
@@ -82,6 +110,20 @@ router.get("/providers/:providerId", async (req, res): Promise<void> => {
     return;
   }
   res.json(GetProviderResponse.parse(provider));
+});
+
+router.get("/providers/:providerId/availability", async (req, res): Promise<void> => {
+  const parsed = ListPublicProviderAvailabilityParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const slots = await listPublicProviderAvailability(parsed.data.providerId);
+  if (!slots) {
+    res.status(404).json({ error: "Provider not found" });
+    return;
+  }
+  res.json(ListPublicProviderAvailabilityResponse.parse(slots));
 });
 
 router.post("/jobs", async (req, res): Promise<void> => {
@@ -136,6 +178,25 @@ router.get("/jobs/:jobId", async (req, res): Promise<void> => {
   res.json(GetJobResponse.parse(job));
 });
 
+router.post("/concierge/prepare", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const parsed = PrepareServiceRequestBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const result = await prepareServiceRequest(userId, parsed.data);
+  if ("error" in result) {
+    res.status(result.error === "CONVERSATION_NOT_FOUND" ? 404 : 500).json({ error: result.error });
+    return;
+  }
+  res.json(PrepareServiceRequestResponse.parse(result));
+});
+
 router.post("/jobs/:jobId/quote-requests", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   if (!userId) {
@@ -174,6 +235,45 @@ router.get("/jobs/:jobId/quotes", async (req, res): Promise<void> => {
   res.json(ListJobQuotesResponse.parse(quotes));
 });
 
+router.get("/jobs/:jobId/messages", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const parsed = ListJobMessagesParams.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const messages = await listJobMessages(userId, parsed.data.jobId);
+  if (!messages) {
+    res.status(404).json({ error: "Request not found or caller is not a participant" });
+    return;
+  }
+  res.json(ListJobMessagesResponse.parse(messages));
+});
+
+router.post("/jobs/:jobId/messages", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const params = SendJobMessageParams.safeParse(req.params);
+  const body = SendJobMessageBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+    return;
+  }
+  const result = await sendJobMessage(userId, params.data.jobId, body.data.body);
+  if ("error" in result) {
+    res.status(result.error === "NOT_FOUND" ? 404 : 400).json({ error: result.error });
+    return;
+  }
+  res.status(201).json(SendJobMessageResponse.parse(result.message));
+});
+
 router.post("/provider/profile", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   if (!userId) {
@@ -205,6 +305,75 @@ router.get("/provider/requests", async (req, res): Promise<void> => {
     return;
   }
   res.json(ListProviderRequestsResponse.parse(requests));
+});
+
+router.get("/provider/availability", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const slots = await listProviderAvailability(userId);
+  if (!slots) {
+    res.status(404).json({ error: "Provider profile required" });
+    return;
+  }
+  res.json(ListProviderAvailabilityResponse.parse(slots));
+});
+
+router.post("/provider/availability", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const parsed = CreateProviderAvailabilityBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const result = await createProviderAvailability(userId, parsed.data);
+  if ("error" in result) {
+    const status = result.error === "PROVIDER_PROFILE_REQUIRED" ? 404 : result.error === "AVAILABILITY_CONFLICT" ? 409 : 400;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+  res.status(201).json(CreateProviderAvailabilityResponse.parse(result.slot));
+});
+
+router.patch("/provider/availability/:slotId", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const params = UpdateProviderAvailabilityParams.safeParse(req.params);
+  const body = UpdateProviderAvailabilityBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+    return;
+  }
+  const result = await updateProviderAvailability(userId, params.data.slotId, body.data.status);
+  if ("error" in result) {
+    const status = result.error === "NOT_FOUND" ? 404 : 409;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+  res.json(UpdateProviderAvailabilityResponse.parse(result.slot));
+});
+
+router.get("/provider/bookings", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const bookings = await listProviderBookings(userId);
+  if (!bookings) {
+    res.status(404).json({ error: "Provider profile required" });
+    return;
+  }
+  res.json(ListProviderBookingsResponse.parse(bookings));
 });
 
 router.post("/provider/jobs/:jobId/quotes", async (req, res): Promise<void> => {
@@ -269,6 +438,35 @@ router.get("/bookings/:bookingId", async (req, res): Promise<void> => {
     return;
   }
   res.json(GetBookingResponse.parse(booking));
+});
+
+router.post("/bookings/:bookingId/status", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!userId) {
+    unauthorized(res);
+    return;
+  }
+  const params = UpdateBookingStatusParams.safeParse(req.params);
+  const body = UpdateBookingStatusBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+    return;
+  }
+  const result = await updateBookingStatus(
+    userId,
+    params.data.bookingId,
+    body.data.status,
+    body.data.availabilitySlotId,
+  );
+  if ("error" in result) {
+    const status = result.error === "NOT_FOUND" ? 404
+      : result.error === "FORBIDDEN" ? 403
+      : result.error === "SLOT_UNAVAILABLE" || result.error === "SLOT_TOO_SHORT" ? 409
+      : 400;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+  res.json(UpdateBookingStatusResponse.parse(result.booking));
 });
 
 router.get("/my/bookings", async (req, res): Promise<void> => {
