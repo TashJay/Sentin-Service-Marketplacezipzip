@@ -262,8 +262,12 @@ router.post("/jobs/:jobId/messages", async (req, res): Promise<void> => {
   }
   const params = SendJobMessageParams.safeParse(req.params);
   const body = SendJobMessageBody.safeParse(req.body);
-  if (!params.success || !body.success) {
-    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
     return;
   }
   const result = await sendJobMessage(userId, params.data.jobId, body.data.body);
@@ -332,7 +336,10 @@ router.post("/provider/availability", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const result = await createProviderAvailability(userId, parsed.data);
+  const result = await createProviderAvailability(userId, {
+    startsAt: parsed.data.startsAt.toISOString(),
+    endsAt: parsed.data.endsAt.toISOString(),
+  });
   if ("error" in result) {
     const status = result.error === "PROVIDER_PROFILE_REQUIRED" ? 404 : result.error === "AVAILABILITY_CONFLICT" ? 409 : 400;
     res.status(status).json({ error: result.error });
@@ -349,8 +356,12 @@ router.patch("/provider/availability/:slotId", async (req, res): Promise<void> =
   }
   const params = UpdateProviderAvailabilityParams.safeParse(req.params);
   const body = UpdateProviderAvailabilityBody.safeParse(req.body);
-  if (!params.success || !body.success) {
-    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
     return;
   }
   const result = await updateProviderAvailability(userId, params.data.slotId, body.data.status);
@@ -448,8 +459,12 @@ router.post("/bookings/:bookingId/status", async (req, res): Promise<void> => {
   }
   const params = UpdateBookingStatusParams.safeParse(req.params);
   const body = UpdateBookingStatusBody.safeParse(req.body);
-  if (!params.success || !body.success) {
-    res.status(400).json({ error: params.success ? body.error.message : params.error.message });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
     return;
   }
   const result = await updateBookingStatus(

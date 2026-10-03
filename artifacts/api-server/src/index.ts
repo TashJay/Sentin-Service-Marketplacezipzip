@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { seedDevelopmentData } from "./lib/seed-dev";
+import { seedServiceCatalog } from "./lib/seed-dev";
 
 const rawPort = process.env["PORT"];
 
@@ -19,7 +19,7 @@ if (Number.isNaN(port) || port <= 0) {
 async function startServer(): Promise<void> {
   try {
     if (process.env.NODE_ENV === "development") {
-      await seedDevelopmentData();
+      await seedServiceCatalog();
     }
     app.listen(port, (err) => {
       if (err) {

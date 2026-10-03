@@ -3,18 +3,20 @@ import type { ReactNode, FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'wouter';
 import {
-  useAcceptQuote, useCreateJob, useCreateProviderProfile, useGetBooking, useGetDashboardSummary, useGetProvider,
-  useGetJob, useListJobQuotes, useListMyBookings, useListMyJobs, useListProviderRequests,
-  useListServices, useRequestQuotes, useSearchProviders, useSubmitQuote,
+  useAcceptQuote, useCreateJob, useCreateProviderAvailability, useCreateProviderProfile, useGetBooking, useGetDashboardSummary, useGetProvider,
+  useGetJob, useListJobMessages, useListJobQuotes, useListMyBookings, useListMyJobs, useListProviderAvailability,
+  useListProviderBookings, useListProviderRequests, useListServices, useRequestQuotes, useSearchProviders,
+  useSendJobMessage, useSubmitQuote, useUpdateBookingStatus, useUpdateProviderAvailability,
   getGetDashboardSummaryQueryKey, getGetJobQueryKey, getGetBookingQueryKey, getGetProviderQueryKey,
-  getListJobQuotesQueryKey, getListMyBookingsQueryKey, getListMyJobsQueryKey,
+  getListJobMessagesQueryKey, getListJobQuotesQueryKey, getListMyBookingsQueryKey, getListMyJobsQueryKey,
+  getListProviderAvailabilityQueryKey, getListProviderBookingsQueryKey, getListPublicProviderAvailabilityQueryKey,
   getListProviderRequestsQueryKey, getSearchProvidersQueryKey,
 } from '@workspace/api-client-react';
 import type { Booking, JobInput, Provider, ProviderProfileInput, QuoteInput, SearchProvidersParams } from '@workspace/api-client-react';
 import { useUser, useClerk } from '@clerk/react';
 import {
   ArrowLeft, ArrowRight, BadgeCheck, BriefcaseBusiness, CalendarDays, Check,
-  CircleHelp, Clock3, FileText, Globe2, MapPin, Menu, Search, ShieldCheck,
+  CircleHelp, Clock3, FileText, Globe2, MapPin, Menu, MessageCircle, Search, Send, ShieldCheck,
   Sparkles, Wrench, X,
 } from 'lucide-react';
 
@@ -217,20 +219,121 @@ export function JobPage() {
       <section><div className="mb-5 flex items-end justify-between"><div><div className="text-[11px] font-bold uppercase tracking-[.16em] text-primary">Provider responses</div><h2 className="serif mt-2 text-3xl font-bold">Compare quotes</h2></div><span className="text-sm text-muted-foreground">{quotes.data?.length ?? 0} received</span></div>
         {quotes.isLoading ? <LoadingRows/> : quotes.isError ? <ErrorNote message="Provider quotes could not be loaded." onRetry={() => void quotes.refetch()}/> : quotes.data?.length ? <div className="space-y-4">{quotes.data.map(q => <article className="rounded-2xl border border-border bg-card p-5 md:p-6" key={q.id} data-testid={`card-quote-${q.id}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-bold">{q.providerName}</h3><div className="mt-1 text-xs text-muted-foreground">Sent {date(q.createdAt)}</div></div><div className="text-right"><div className="serif text-2xl font-bold">{money(q.amount, q.currency)}</div><Badge tone={q.status === 'SENT' ? 'green' : 'neutral'}>{nice(q.status)}</Badge></div></div>{q.isDemo && <div className="mt-4"><Badge tone="demo">Synthetic quote · demo</Badge></div>}<p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{q.description}</p><div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">{q.durationMinutes != null && <span className="flex items-center gap-1.5"><Clock3 size={14}/>{q.durationMinutes} min estimated</span>}{q.expiresAt && <span className="flex items-center gap-1.5"><CalendarDays size={14}/>Expires {date(q.expiresAt)}</span>}</div>{q.status === 'SENT' && <button onClick={() => chooseQuote(q.id)} disabled={acceptQuote.isPending} className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-50" data-testid={`button-accept-quote-${q.id}`}>{acceptQuote.isPending ? 'Accepting…' : 'Accept this quote'} <ArrowRight size={15}/></button>}</article>)}</div> : <StatePanel title="No quotes just yet" body="Request quotes to send your service details to matched professionals. Their real responses will appear here for an easy comparison." action={<button onClick={request} disabled={requestQuotes.isPending || job.data.status === 'BOOKED' || job.data.status === 'COMPLETED'} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50" data-testid="button-request-quotes-empty">{requestQuotes.isPending ? 'Sending…' : 'Request quotes'}</button>}/>}
         {acceptQuote.isError && <div className="mt-4"><ErrorNote message="That quote could not be accepted. Please try again."/></div>}</section>
-    </div>}</PageWrap></Shell>;
+    </div>}
+    {job.data && <div className="mt-8"><JobMessagesPanel jobId={jobId}/></div>}
+  </PageWrap></Shell>;
+}
+
+function JobMessagesPanel({ jobId, jobLabel, collapsible = false }: { jobId: string; jobLabel?: string; collapsible?: boolean }) {
+  const { user } = useUser();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(!collapsible);
+  const [body, setBody] = useState('');
+  const messages = useListJobMessages(jobId, {
+    query: { queryKey: getListJobMessagesQueryKey(jobId), enabled: open, refetchInterval: open ? 10_000 : false },
+  });
+  const send = useSendJobMessage();
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = body.trim();
+    if (!trimmed || send.isPending) return;
+    send.mutate({ jobId, data: { body: trimmed } }, {
+      onSuccess: async () => {
+        setBody('');
+        await queryClient.invalidateQueries({ queryKey: getListJobMessagesQueryKey(jobId) });
+      },
+    });
+  };
+
+  return <section className="rounded-2xl border border-border bg-card p-5 md:p-6" data-testid={`panel-job-messages-${jobId}`}>
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2"><MessageCircle size={17} className="text-primary"/><div><h2 className="font-bold">{jobLabel ? `Messages · ${jobLabel}` : 'Request messages'}</h2>{jobLabel && <p className="mt-0.5 text-xs text-muted-foreground">Request · {jobId}</p>}</div></div>
+      {collapsible && <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} className="text-sm font-semibold text-primary underline underline-offset-4" data-testid={`button-toggle-messages-${jobId}`}>{open ? 'Hide' : 'View conversation'}</button>}
+    </div>
+    {open && <>
+      <div className="mt-4 max-h-72 space-y-3 overflow-y-auto rounded-xl bg-muted/40 p-3" aria-live="polite">
+        {messages.isLoading ? <LoadingRows count={1}/> : messages.isError ? <ErrorNote message="Messages could not be loaded." onRetry={() => void messages.refetch()}/> : messages.data?.length ? messages.data.map(item => <article key={item.id} className={`max-w-[92%] rounded-xl px-3.5 py-2.5 ${item.senderUserId === user?.id ? 'ml-auto bg-accent text-foreground' : 'bg-card'}`}><div className="mb-1 flex items-center justify-between gap-4 text-[11px] text-muted-foreground"><span className="font-semibold">{item.senderUserId === user?.id ? 'You' : 'Other participant'}</span><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></div><p className="whitespace-pre-wrap break-words text-sm leading-5">{item.body}</p></article>) : <p className="py-4 text-center text-sm text-muted-foreground">No messages yet. Keep request details and coordination here.</p>}
+      </div>
+      <form onSubmit={submit} className="mt-3 flex items-end gap-2">
+        <label className="sr-only" htmlFor={`message-${jobId}`}>Write a message</label>
+        <textarea id={`message-${jobId}`} value={body} onChange={event => setBody(event.target.value)} maxLength={2000} rows={2} placeholder="Write a message to the other participant…" className="min-h-11 flex-1 resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" data-testid={`input-message-${jobId}`}/>
+        <button type="submit" disabled={!body.trim() || send.isPending} className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50" data-testid={`button-send-message-${jobId}`}><Send size={15}/><span className="hidden sm:inline">{send.isPending ? 'Sending…' : 'Send'}</span></button>
+      </form>
+      {send.isError && <div className="mt-3"><ErrorNote message="Your message was not sent. Please try again."/></div>}
+    </>}
+  </section>;
 }
 
 function BookingTimeline({ booking }: { booking: Booking }) {
   return <div className="rounded-2xl border border-border bg-card p-6 md:p-8" data-testid={`panel-booking-${booking.id}`}><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="text-[11px] font-bold uppercase tracking-[.15em] text-primary">Booking record</div><h1 className="serif mt-2 text-3xl font-bold">{booking.providerName}</h1><p className="mt-1 text-sm text-muted-foreground">Booking reference · {booking.id}</p></div><Badge tone={['CONFIRMED','EN_ROUTE','ARRIVED','IN_PROGRESS','COMPLETED'].includes(booking.status) ? 'green' : booking.status === 'DISPUTED' ? 'amber' : 'neutral'}>{nice(booking.status)}</Badge></div>
-    <div className="mt-7 grid gap-4 border-y border-border py-5 sm:grid-cols-3"><div><span className="text-xs text-muted-foreground">Created</span><p className="mt-1 font-semibold">{date(booking.createdAt)}</p></div><div><span className="text-xs text-muted-foreground">Scheduled</span><p className="mt-1 font-semibold">{date(booking.scheduledAt)}</p></div><div><span className="text-xs text-muted-foreground">Request</span><p className="mt-1 truncate font-semibold">{booking.jobId}</p></div></div>
+    <div className="mt-7 grid gap-4 border-y border-border py-5 sm:grid-cols-3"><div><span className="text-xs text-muted-foreground">Created</span><p className="mt-1 font-semibold">{date(booking.createdAt)}</p></div><div><span className="text-xs text-muted-foreground">Scheduled</span><p className="mt-1 font-semibold">{booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString() : 'Not scheduled'}</p></div><div><span className="text-xs text-muted-foreground">Request</span><p className="mt-1 truncate font-semibold">{booking.jobId}</p></div></div>
     <div className="mt-6 rounded-xl bg-accent/70 p-4"><div className="flex items-start gap-3"><Check size={18} className="mt-0.5 shrink-0 text-primary"/><div><h2 className="font-semibold">Status from the marketplace</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">This record reflects the latest booking status returned by Sentin. Follow up with the provider directly for arrangements not shown here.</p></div></div></div>
+    {booking.statusHistory?.length ? <section className="mt-6"><h2 className="font-semibold">Status history</h2><ol className="mt-3 space-y-3 border-l border-border pl-4">{booking.statusHistory.map(item => <li key={item.id} className="relative"><span className="absolute -left-[21px] top-1.5 size-2.5 rounded-full bg-primary"/><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold">{item.fromStatus ? `${nice(item.fromStatus)} → ` : ''}{nice(item.toStatus)}</span><time className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</time></div>{item.note && <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.note}</p>}</li>)}</ol></section> : null}
     <Link href={`/jobs/${booking.jobId}`} className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-primary" data-testid="link-booking-request">View original request <ArrowRight size={15}/></Link>
   </div>;
 }
+
+function BookingWorkflowControls({ booking }: { booking: Booking }) {
+  const queryClient = useQueryClient();
+  const customerBookings = useListMyBookings();
+  const providerBookings = useListProviderBookings();
+  const isCustomer = customerBookings.data?.some(item => item.id === booking.id) ?? false;
+  const isProvider = providerBookings.data?.some(item => item.id === booking.id) ?? false;
+  const availability = useListProviderAvailability({ query: { queryKey: getListProviderAvailabilityQueryKey(), enabled: isProvider } });
+  const update = useUpdateBookingStatus();
+  const [slotId, setSlotId] = useState('');
+  const isPending = customerBookings.isLoading || providerBookings.isLoading;
+  const canCancel = ['REQUESTED', 'PENDING_PROVIDER', 'CONFIRMED', 'EN_ROUTE'].includes(booking.status);
+  const providerNext: Record<string, { status: 'EN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'COMPLETED'; label: string }> = {
+    CONFIRMED: { status: 'EN_ROUTE', label: 'Mark provider en route' },
+    EN_ROUTE: { status: 'ARRIVED', label: 'Mark arrived' },
+    ARRIVED: { status: 'IN_PROGRESS', label: 'Start work' },
+    IN_PROGRESS: { status: 'COMPLETED', label: 'Mark completed' },
+  };
+  const advance = (status: 'CONFIRMED' | 'EN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'DISPUTED') => {
+    update.mutate({ bookingId: booking.id, data: { status, ...(status === 'CONFIRMED' ? { availabilitySlotId: slotId } : {}) } }, {
+      onSuccess: async () => {
+        setSlotId('');
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: getGetBookingQueryKey(booking.id) }),
+          queryClient.invalidateQueries({ queryKey: getListMyBookingsQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getListProviderBookingsQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getListProviderRequestsQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }),
+        ]);
+      },
+    });
+  };
+  const openSlots = (availability.data ?? []).filter(slot => slot.status === 'OPEN');
+  const needsConfirmation = isProvider && ['REQUESTED', 'PENDING_PROVIDER'].includes(booking.status);
+  const next = providerNext[booking.status];
+
+  if (isPending) return <div className="mt-5"><LoadingRows count={1}/></div>;
+  if (!isCustomer && !isProvider) return null;
+
+  return <section className="mt-5 rounded-2xl border border-border bg-card p-5" data-testid={`panel-booking-actions-${booking.id}`}>
+    <h2 className="font-bold">Booking actions</h2>
+    {needsConfirmation && <label className="mt-3 block text-xs font-semibold">Choose an open appointment slot
+      <select value={slotId} onChange={event => setSlotId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal" data-testid="select-booking-slot">
+        <option value="">Select a real published slot</option>{openSlots.map(slot => <option key={slot.id} value={slot.id}>{new Date(slot.startsAt).toLocaleString()} – {new Date(slot.endsAt).toLocaleTimeString()}</option>)}
+      </select>
+    </label>}
+    {needsConfirmation && availability.isError && <div className="mt-3"><ErrorNote message="Your published availability could not be loaded." onRetry={() => void availability.refetch()}/></div>}
+    {needsConfirmation && !availability.isError && openSlots.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Publish an open slot before confirming this booking.</p>}
+    <div className="mt-4 flex flex-wrap gap-2">
+      {needsConfirmation && <button type="button" onClick={() => advance('CONFIRMED')} disabled={!slotId || update.isPending} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50" data-testid="button-confirm-booking">{update.isPending ? 'Saving…' : 'Confirm selected time'}</button>}
+      {isProvider && next && <button type="button" onClick={() => advance(next.status)} disabled={update.isPending} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{next.label}</button>}
+      {isCustomer && ['IN_PROGRESS', 'COMPLETED'].includes(booking.status) && <button type="button" onClick={() => advance('DISPUTED')} disabled={update.isPending} className="rounded-lg border border-amber-300 px-4 py-2.5 text-sm font-bold text-amber-800 disabled:opacity-50">Report an issue</button>}
+      {(isCustomer || isProvider) && canCancel && <button type="button" onClick={() => advance('CANCELLED')} disabled={update.isPending} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold disabled:opacity-50">Cancel booking</button>}
+    </div>
+    {update.isError && <div className="mt-3"><ErrorNote message="That booking update could not be saved. Refresh the record and try again."/></div>}
+  </section>;
+}
+
 export function BookingPage() {
   const { bookingId = '' } = useParams<{ bookingId: string }>();
   const booking = useGetBooking(bookingId);
-  return <Shell><PageWrap><Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft size={16}/> Back to Sentin</Link><div className="mx-auto mt-9 max-w-[760px]">{booking.isLoading ? <LoadingRows count={2}/> : booking.isError || !booking.data ? <ErrorNote message="We couldn’t retrieve this booking record. Check the reference and try again." onRetry={() => void booking.refetch()}/> : <BookingTimeline booking={booking.data}/>}</div></PageWrap></Shell>;
+  return <Shell><PageWrap><Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft size={16}/> Back to Sentin</Link><div className="mx-auto mt-9 max-w-[760px]">{booking.isLoading ? <LoadingRows count={2}/> : booking.isError || !booking.data ? <ErrorNote message="We couldn’t retrieve this booking record. Check the reference and try again." onRetry={() => void booking.refetch()}/> : <><BookingTimeline booking={booking.data}/><BookingWorkflowControls booking={booking.data}/></>}</div></PageWrap></Shell>;
 }
 
 function ProviderOnboarding() {
@@ -258,6 +361,66 @@ function ProviderOnboarding() {
       {createProfile.isError && <ErrorNote message="Your provider profile could not be saved."/>}
       <button type="submit" disabled={createProfile.isPending || form.serviceSlugs.length === 0} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-50" data-testid="button-create-provider-profile">{createProfile.isPending ? 'Saving profile…' : 'Save provider profile'} <ArrowRight size={15}/></button>
     </form>}
+    {profileId && ownProfile.data && <><ProviderAvailabilityManager providerId={profileId}/><ProviderBookingList/></>}
+  </section>;
+}
+
+function ProviderAvailabilityManager({ providerId }: { providerId: string }) {
+  const queryClient = useQueryClient();
+  const slots = useListProviderAvailability();
+  const create = useCreateProviderAvailability();
+  const update = useUpdateProviderAvailability();
+  const [form, setForm] = useState({ startsAt: '', endsAt: '' });
+  const localNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  const validRange = form.startsAt && form.endsAt
+    && new Date(form.startsAt).getTime() > Date.now()
+    && new Date(form.endsAt).getTime() > new Date(form.startsAt).getTime();
+  const refreshAvailability = async () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: getListProviderAvailabilityQueryKey() }),
+    queryClient.invalidateQueries({ queryKey: getListPublicProviderAvailabilityQueryKey(providerId) }),
+  ]);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!validRange) return;
+    create.mutate({
+      data: {
+        startsAt: new Date(form.startsAt).toISOString(),
+        endsAt: new Date(form.endsAt).toISOString(),
+      },
+    }, {
+      onSuccess: async () => {
+        setForm({ startsAt: '', endsAt: '' });
+        await refreshAvailability();
+      },
+    });
+  };
+  const toggleSlot = (slotId: string, status: 'OPEN' | 'BLOCKED') => update.mutate(
+    { slotId, data: { status } },
+    { onSuccess: refreshAvailability },
+  );
+
+  return <section className="mt-5 rounded-2xl border border-border bg-card p-5" data-testid="section-provider-availability">
+    <div className="flex items-start gap-3"><CalendarDays size={18} className="mt-0.5 text-primary"/><div><h3 className="font-bold">Published availability</h3><p className="mt-1 text-sm leading-5 text-muted-foreground">Only open time slots can be offered to customers. Reserved slots come from confirmed bookings.</p></div></div>
+    <form onSubmit={submit} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      <label className="block text-xs font-semibold">Starts
+        <input required type="datetime-local" min={localNow} value={form.startsAt} onChange={event => setForm(value => ({ ...value, startsAt: event.target.value }))} className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-2 text-sm font-normal" data-testid="input-availability-start"/>
+      </label>
+      <label className="block text-xs font-semibold">Ends
+        <input required type="datetime-local" min={form.startsAt || localNow} value={form.endsAt} onChange={event => setForm(value => ({ ...value, endsAt: event.target.value }))} className="mt-1.5 h-10 w-full rounded-lg border border-input bg-background px-2 text-sm font-normal" data-testid="input-availability-end"/>
+      </label>
+      <button type="submit" disabled={!validRange || create.isPending} className="h-10 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-50" data-testid="button-publish-availability">{create.isPending ? 'Publishing…' : 'Publish slot'}</button>
+    </form>
+    {create.isError && <div className="mt-3"><ErrorNote message="That slot could not be published. Check that it is in the future and does not overlap another slot."/></div>}
+    {slots.isLoading ? <div className="mt-4"><LoadingRows count={1}/></div> : slots.isError ? <div className="mt-4"><ErrorNote message="Published availability could not be loaded." onRetry={() => void slots.refetch()}/></div> : slots.data?.length ? <ul className="mt-4 divide-y divide-border rounded-xl border border-border">{slots.data.map(slot => <li key={slot.id} className="flex flex-wrap items-center justify-between gap-3 p-3" data-testid={`availability-slot-${slot.id}`}><div><div className="text-sm font-semibold">{new Date(slot.startsAt).toLocaleString()} – {new Date(slot.endsAt).toLocaleTimeString()}</div><div className="mt-1 text-xs text-muted-foreground">{nice(slot.status)}</div></div>{slot.status !== 'RESERVED' && <button type="button" onClick={() => toggleSlot(slot.id, slot.status === 'OPEN' ? 'BLOCKED' : 'OPEN')} disabled={update.isPending} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-50" data-testid={`button-toggle-availability-${slot.id}`}>{slot.status === 'OPEN' ? 'Block slot' : 'Reopen slot'}</button>}</li>)}</ul> : <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">No upcoming slots are published.</p>}
+    {update.isError && <div className="mt-3"><ErrorNote message="The slot status could not be changed."/></div>}
+  </section>;
+}
+
+function ProviderBookingList() {
+  const bookings = useListProviderBookings({ query: { queryKey: getListProviderBookingsQueryKey(), refetchInterval: 10_000 } });
+  return <section className="mt-5 rounded-2xl border border-border bg-card p-5" data-testid="section-provider-bookings">
+    <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold">Bookings</h3><p className="mt-1 text-sm text-muted-foreground">Review requests and update their real status.</p></div><Badge>{bookings.data?.length ?? 0}</Badge></div>
+    {bookings.isLoading ? <div className="mt-4"><LoadingRows count={1}/></div> : bookings.isError ? <div className="mt-4"><ErrorNote message="Provider bookings could not be loaded." onRetry={() => void bookings.refetch()}/></div> : bookings.data?.length ? <ul className="mt-3 divide-y divide-border">{bookings.data.map(booking => <li key={booking.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><div className="text-sm font-semibold">{nice(booking.status)}</div><div className="mt-1 text-xs text-muted-foreground">{booking.scheduledAt ? new Date(booking.scheduledAt).toLocaleString() : 'Awaiting provider confirmation'}</div></div><Link href={`/bookings/${booking.id}`} className="text-sm font-semibold text-primary underline underline-offset-4">Manage booking</Link></li>)}</ul> : <p className="mt-3 text-sm text-muted-foreground">No bookings yet.</p>}
   </section>;
 }
 
@@ -281,5 +444,6 @@ export function ProviderPage() {
     <section><div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><div className="text-[11px] font-bold uppercase tracking-[.15em] text-primary">Matched to your services</div><h2 className="serif mt-2 text-3xl font-bold">Open requests</h2></div><Badge>{requests.data?.length ?? 0} requests</Badge></div>
       {!isSignedIn ? <StatePanel title="Requests are account-specific" body="Sign in and create a provider profile to see service requests matched to your services and area."/> : requests.isLoading ? <LoadingRows/> : requests.isError ? <ErrorNote message="Matched requests could not be loaded." onRetry={() => void requests.refetch()}/> : requests.data?.length ? <div className="space-y-4">{requests.data.map(job => <article key={job.id} className="rounded-2xl border border-border bg-card p-5 md:p-6" data-testid={`card-provider-request-${job.id}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><Badge tone={job.status === 'OPEN' ? 'green' : 'neutral'}>{nice(job.status)}</Badge><h3 className="mt-3 text-lg font-bold">{job.serviceName}</h3></div><span className="text-xs text-muted-foreground">{date(job.createdAt)}</span></div><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{job.description}</p><div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><MapPin size={14}/>{job.city}, {job.countryCode}</span><span>{nice(job.urgency)}</span><span>{nice(job.propertyType)}</span></div>{quoted.includes(job.id) ? <div role="status" className="mt-4 rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-primary" data-testid={`status-quote-sent-${job.id}`}>Quote submitted. It’s now part of your marketplace record.</div> : <QuoteSubmission jobId={job.id} onDone={() => setQuoted(old => [...old, job.id])}/>}</article>)}</div> : <StatePanel title="No matching requests at the moment" body="When a customer request matches your services and location, it will appear here. Check back later."/>}
     </section>
+    {isSignedIn && requests.data?.length ? <section className="mt-8"><div className="mb-4"><div className="text-[11px] font-bold uppercase tracking-[.15em] text-primary">Messages</div><h2 className="serif mt-1 text-2xl font-bold">Request conversations</h2></div><div className="space-y-3">{requests.data.map(job => <JobMessagesPanel key={job.id} jobId={job.id} jobLabel={job.serviceName} collapsible/>)}</div></section> : null}
   </div></PageWrap></Shell>;
 }

@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { providersTable, servicesTable } from "@workspace/db";
+import { servicesTable } from "@workspace/db";
 
 const categories = [
   ["plumbing", "Plumbing", "home"],
@@ -45,49 +44,12 @@ const categories = [
   ["carpentry", "Carpentry", "construction"],
 ] as const;
 
-export async function seedDevelopmentData(): Promise<void> {
+export async function seedServiceCatalog(): Promise<void> {
   if (process.env.NODE_ENV === "production") {
-    throw new Error("Synthetic seed data is disabled in production.");
+    throw new Error("Service catalog seeding is disabled in production.");
   }
 
   await db.insert(servicesTable).values(
     categories.map(([slug, name, category]) => ({ slug, name, category })),
   ).onConflictDoNothing();
-
-  const [existingDemo] = await db
-    .select({ id: providersTable.id })
-    .from(providersTable)
-    .where(eq(providersTable.isDemo, true))
-    .limit(1);
-  if (existingDemo) return;
-
-  await db.insert(providersTable).values([
-    {
-      companyName: "Demo Plumbing Company",
-      description: "Synthetic development record. This is not a real business.",
-      serviceSlugs: ["plumbing"],
-      city: "Nairobi",
-      countryCode: "KE",
-      currency: "KES",
-      isDemo: true,
-    },
-    {
-      companyName: "Demo Home Electrical",
-      description: "Synthetic development record. This is not a real business.",
-      serviceSlugs: ["electrical", "handyman"],
-      city: "Manchester",
-      countryCode: "GB",
-      currency: "GBP",
-      isDemo: true,
-    },
-    {
-      companyName: "Demo Appliance Care",
-      description: "Synthetic development record. This is not a real business.",
-      serviceSlugs: ["appliance-repair"],
-      city: "New York",
-      countryCode: "US",
-      currency: "USD",
-      isDemo: true,
-    },
-  ]).onConflictDoNothing();
 }

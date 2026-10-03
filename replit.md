@@ -1,15 +1,19 @@
-# [Project name]
+# Sentin Services
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Sentin is a service marketplace with a ChatGPT/MCP concierge, real provider quotes and availability, participant messaging, and an auditable booking lifecycle.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
+- `pnpm run test:marketplace` — run the database-backed marketplace lifecycle test against development
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required environment: `DATABASE_URL`; Replit-managed Clerk must be provisioned for web sign-in and authenticated requests.
+- Clerk keys come from Replit's managed auth setup, not checked-in files or manually copied values. If setup rejects an archive-derived app name, rename the Repl to a short name such as `Sentin` before retrying.
+- `SESSION_SECRET` is required for OAuth session signing and is managed through workspace Secrets.
+- Payments intentionally remain `NOT_CONFIGURED` until a processor and merchant setup are approved; the app must not claim a payment was collected.
 
 ## Stack
 
@@ -22,15 +26,29 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — API source of truth; generated hooks and schemas live in the workspace client packages.
+- `lib/db/src/schema/` — PostgreSQL schema.
+- `artifacts/api-server/src/lib/concierge.ts` — clarification and confirmed-detail intake for the ChatGPT concierge.
+- `artifacts/api-server/src/lib/marketplace.ts` — provider matching, quotes, availability, bookings, and messages.
+- `artifacts/api-server/src/lib/payments.ts` — provider-neutral payment interface and balanced ledger logic.
+- `artifacts/api-server/src/lib/marketplace.e2e.test.ts` — integration test for the end-to-end marketplace lifecycle.
+- `artifacts/sentin/src/pages/marketplace.tsx` — customer and provider web flows.
+- `artifacts/api-server/src/lib/seed-dev.ts` — development service taxonomy only; it must not seed fictional providers or transactions.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Service requests use only user-confirmed details; the concierge asks for missing service or location information rather than guessing.
+- Provider profiles, quotes, availability slots, booking transitions, and messages come from persisted marketplace records. No synthetic provider or payment facts are seeded.
+- Quotes remain immutable history; a provider may submit a replacement only after its earlier quote is no longer active.
+- Booking confirmation reserves a real provider slot transactionally. Cancellation releases the slot and reopens a provider-cancelled request.
+- Payments are processor-neutral and remain unavailable until a real processor is configured; successful capture is the only event that may create ledger entries.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- ChatGPT can clarify a service request and create it through MCP tools.
+- Customers can compare real provider quotes, message the provider, and track a booking.
+- Providers can publish and block availability, submit quotes, message customers, and advance booking status.
+- The standalone web interface supports these customer and provider workflows when Clerk is configured.
 
 ## User preferences
 

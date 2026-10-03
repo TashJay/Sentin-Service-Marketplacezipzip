@@ -311,7 +311,11 @@ export async function submitQuote(userId: string, jobId: string, input: QuoteInp
     .limit(1);
   if (!job) return { error: "JOB_CLOSED" as const };
   const [existing] = await db.select({ id: quotesTable.id }).from(quotesTable)
-    .where(and(eq(quotesTable.jobId, jobId), eq(quotesTable.providerId, provider.id)))
+    .where(and(
+      eq(quotesTable.jobId, jobId),
+      eq(quotesTable.providerId, provider.id),
+      inArray(quotesTable.status, ["SENT", "ACCEPTED"]),
+    ))
     .limit(1);
   if (existing) return { error: "QUOTE_EXISTS" as const };
 
@@ -662,9 +666,17 @@ export async function updateBookingStatus(
         : null,
     });
     if (nextStatus === "CANCELLED") {
+      await tx.update(quotesTable)
+        .set({ status: "WITHDRAWN" })
+        .where(eq(quotesTable.id, booking.quoteId));
       await tx.update(jobsTable)
         .set({ status: isProvider ? "OPEN" : "CANCELLED" })
         .where(eq(jobsTable.id, booking.jobId));
+      if (isProvider) {
+        await tx.update(quoteRequestsTable)
+          .set({ status: "OPEN" })
+          .where(eq(quoteRequestsTable.jobId, booking.jobId));
+      }
     } else if (nextStatus === "COMPLETED") {
       await tx.update(jobsTable).set({ status: "COMPLETED" }).where(eq(jobsTable.id, booking.jobId));
     }

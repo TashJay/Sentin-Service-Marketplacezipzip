@@ -1,4 +1,5 @@
 import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
 import { index, integer, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 import { jobsTable } from "./jobs";
@@ -19,7 +20,10 @@ export const quotesTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("quotes_job_provider_unique").on(table.jobId, table.providerId),
+    uniqueIndex("quotes_job_provider_active_unique")
+      .on(table.jobId, table.providerId)
+      .where(sql`${table.status} in ('SENT', 'ACCEPTED')`),
+    index("quotes_job_provider_created_idx").on(table.jobId, table.providerId, table.createdAt),
     index("quotes_job_status_idx").on(table.jobId, table.status),
   ],
 );
